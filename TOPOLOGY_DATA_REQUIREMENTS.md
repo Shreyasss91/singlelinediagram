@@ -44,10 +44,12 @@ lateral, which DTCs an RMU isolates, which section a GOS splits, feeder loading 
 ### 3.1 One row per node, one parent each
 
 ```
-MUSS ── P-001 ── GOS-01 ── P-002 ──┬── RMU ── P-003 ── ...
+MUSS ── P-001 ── GOS-01 ── P-002 ──┬── RMU ──ODout── P-003 ── ...
          │                         │
          └── SCD-01                └── P-010 ── SCD-07    (spur S1)
 ```
+
+The link `P-002 → RMU` is way `ODin`; the link `RMU → P-003` is way `ODout`. See §3.4.
 
 Every physical point is a **node**. Every node except the source has exactly one **`PARENT_ID`** —
 the node immediately upstream, towards the MUSS. Reading the parent column together gives the whole
@@ -75,21 +77,54 @@ will still separate the symbol from the line. Poles are better, but not compulso
 `PARENT_ID` always points **towards the source**. Power flows parent → child. Only a `MUSS` row has
 a blank parent.
 
-### 3.4 Rings and RMUs
+### 3.4 RMUs are five-way units
 
-An RMU in a ring has two ways in service: one in, one out. Record the **incoming** way as
-`PARENT_ID` and the **outgoing** way as a child of the RMU. That draws the ring as a chain through
-the RMU, which is how a radial SLD is normally read.
+Every RMU in this network is a **five-way switchgear**: one way in and four ways out.
 
-If the ring is **closed** (both ends energised), a tree cannot represent the parallel path. Record the
-tree through the RMU and add the tie as a note in `REMARKS`; the drawing will show the ring as one
-path. Closed-ring operation is out of scope until the drawing needs it — tell me if it does.
+| Way | Direction | Use |
+|---|---|---|
+| `ODin` | in | the incoming cable — the RMU is fed through this way |
+| `ODout` | out | the through way to the next unit or the next pole |
+| `VL1` | out | outgoing way 1 |
+| `VL2` | out | outgoing way 2 |
+| `VL3` | out | outgoing way 3 |
+
+So an RMU is **not** a single two-terminal device in a chain: it is one node with five terminals, and
+anything downstream of it leaves by a named way. Two things are recorded, in two places:
+
+1. The RMU is **one row** in `NODES`. Its own `PARENT_ID` is the node that feeds it — that link *is*
+   way `ODin`, so no `WAY` value is written on the RMU row.
+2. Every **child** of the RMU is a normal row whose `PARENT_ID` is the RMU, plus a `WAY` value naming
+   the way it leaves by: `ODout`, `VL1`, `VL2` or `VL3`.
+
+That keeps exactly one parent per node — the rule the whole format rests on — while still saying which
+terminal the cable lands on.
+
+```
+                 ┌── ODout ── P-003 ── ...
+P-002 ── ODin ──[RMU]── VL1 ── SCD-08
+                 ├── VL2 ── (spare)
+                 └── VL3 ── (spare)
+```
+
+`NODES!WAY` is the connection; the `RMU WAYS` sheet (§5) is the register of the five ways themselves —
+direction, normal state, label. A way can carry a child without appearing on that sheet and vice
+versa, but the two are meant to agree, and the validator (§13) checks it.
+
+An RMU in a ring has two ways in service: `ODin` in, `ODout` out. Recorded this way, the ring reads as
+a chain through the RMU, which is how a radial SLD is normally drawn. If the ring is **closed** (both
+ends energised), a tree cannot represent the parallel path: record the tree through the RMU and note
+the tie in `REMARKS`. Closed-ring operation is out of scope until the drawing needs it — tell me if it
+does.
+
+Ways that are **not** in use still exist physically. They stay blank in `NODES` and are listed as
+spare (and marked `NO` if they sit open) on `RMU WAYS`.
 
 ---
 
 ## 4. Field specification — sheet `NODES`
 
-One row per MUSS, RMU, GOS, pole, DTC and HT service. Columns A–N:
+One row per MUSS, RMU, GOS, pole, DTC and HT service. Columns A–O:
 
 | Col | Field | Required | Meaning / accepted values |
 |---|---|---|---|
@@ -101,12 +136,13 @@ One row per MUSS, RMU, GOS, pole, DTC and HT service. Columns A–N:
 | F | `LONG` | if known | Decimal degrees. Blank is allowed for poles. |
 | G | `PARENT_ID` | **all except MUSS** | The node immediately upstream. Must exist in column A. |
 | H | `SPUR_ID` | recommended | `T` = main run from the MUSS. `S1`, `S2`, … = laterals. Constant along a lateral. |
-| I | `KVA` | DTC/HT | Rating or contracted demand. Already filled from the master. |
-| J | `PHASE` | optional | `3PH` or `1PH`. Not in the current master — leave blank if unknown. |
-| K | `NORMALLY` | switches | `NC` (normally closed) or `NO` (normally open). Applies to `GOS` and `RMU`. |
-| L | `CONDUCTOR` | optional | Conductor of the span **from the parent to this node**, e.g. `3x95 ABC`, `3x25 ABC`, `RABBIT`. Leave blank if not recorded. |
-| M | `BASIS` | yes | Where `PARENT_ID` came from: `SOURCE`, `INFERRED`, `SURVEYED`, `FROM-SLD`, `UNKNOWN`. |
-| N | `REMARKS` | optional | Pole number, tap length, “ring open here”, anything the next reader needs. |
+| I | `WAY` | child of an RMU | Which RMU way this node leaves by: `ODout`, `VL1`, `VL2`, `VL3`. Blank on every other row — including the RMU row itself, whose incoming way is `ODin` and is expressed by its `PARENT_ID`. See §3.4. |
+| J | `KVA` | DTC/HT | Rating or contracted demand. Already filled from the master. |
+| K | `PHASE` | optional | `3PH` or `1PH`. Not in the current master — leave blank if unknown. |
+| L | `NORMALLY` | switches | `NC` (normally closed) or `NO` (normally open). Applies to `GOS` and `RMU`. |
+| M | `CONDUCTOR` | optional | Conductor of the span **from the parent to this node**, e.g. `3x95 ABC`, `3x25 ABC`, `RABBIT`. Leave blank if not recorded. |
+| N | `BASIS` | yes | Where `PARENT_ID` came from: `SOURCE`, `INFERRED`, `SURVEYED`, `FROM-SLD`, `UNKNOWN`. |
+| O | `REMARKS` | optional | Pole number, tap length, “ring open here”, anything the next reader needs. |
 
 ### 4.1 Blank coordinates on a pole
 
@@ -117,11 +153,40 @@ approximate. This is the cheapest way to get correct spur grouping before a fiel
 ### 4.2 Minimum viable submission
 
 If you fill only four columns — `NODE_ID`, `TYPE`, `PARENT_ID`, `SPUR_ID` — the tree is complete and
-the drawing improves immediately. Everything else is refinement.
+the drawing improves immediately. Everything else is refinement; `WAY` becomes necessary only on the
+children of an RMU, because otherwise the tool cannot tell which of the five terminals a cable lands
+on.
 
 ---
 
-## 5. Sheet `SPURS`
+## 5. Sheet `RMU WAYS`
+
+The register of the switchgear itself: **one row per way, five rows per RMU**. It is pre-filled for
+every RMU in the master.
+
+| Field | Meaning |
+|---|---|
+| `RMU_ID` | the `NODE_ID` of the RMU row in `NODES` |
+| `WAY` | `ODin`, `ODout`, `VL1`, `VL2`, `VL3` |
+| `DIRECTION` | `IN` for `ODin`, `OUT` for the other four |
+| `NORMALLY` | `NC` (closed) or `NO` (open). All ways default to `NC` — change only a way that really sits open |
+| `LABEL` | **fill this in if the unit is labelled** — e.g. “Kote Road out”, “spare” |
+| `NOTES` | cable size, fuse rating, which feeder it ties to |
+
+Why a separate sheet instead of five columns on the RMU row:
+
+* the **connections** stay in `NODES`, one parent cell per child — they cannot disagree with
+  themselves, and a way can be described without being wired to anything yet;
+* a way carries attributes that belong to the switchgear, not to the node downstream of it (normal
+  state, label, fuse);
+* a spare way has no child at all, yet still exists — it has nowhere to live in `NODES`.
+
+The sheet is a description, not a second copy of the tree: a child named on this sheet is still
+parented only once, in `NODES`.
+
+---
+
+## 6. Sheet `SPURS`
 
 An auto-generated register of the laterals found in `NODES`.
 
@@ -140,7 +205,7 @@ per lateral straight from the register, with no separate calculation.
 
 ---
 
-## 6. Sheet `BENDS`
+## 7. Sheet `BENDS`
 
 Optional. One row per bend on a span:
 
@@ -156,7 +221,7 @@ road. A handful of bends per lateral is enough; there is no need to record every
 
 ---
 
-## 7. How the trunk and spurs are derived
+## 8. How the trunk and spurs are derived
 
 Given complete parents, the grouping is mechanical:
 
@@ -176,7 +241,7 @@ A spur that itself branches keeps the same `SPUR_ID` in the template. If you wan
 
 ---
 
-## 8. What is already in the template
+## 9. What is already in the template
 
 `template/TOPOLOGY TEMPLATE.xlsx` was built from the current master on 26 October 2026:
 
@@ -187,11 +252,16 @@ A spur that itself branches keeps the same `SPUR_ID` in the template. If you wan
 | MUSS rows | 2 |
 | RMU rows | 2 |
 | **Total node rows** | **128** |
+| RMU way rows (`RMU WAYS`) | 10 |
 | With an inferred parent | 112 |
 | Needing a manual parent (`BASIS = UNKNOWN`) | 14 |
 
 The 14 are: 7 DTCs without usable GPS (6 missing, plus `SCD-68` rejected as an outlier), 5 HT services
 (no coordinates in the master), and the 2 RMUs (their way position is not recorded anywhere).
+
+The 10 RMU-way rows are the five ways of each of the two units, all `NC`, waiting for labels and for a
+way to be marked open where it really is. No `WAY` value is pre-filled in `NODES`: neither RMU has a
+recorded child yet, and the minimum-spanning-tree guess never puts a DTC under an RMU.
 
 Inferred per feeder:
 
@@ -207,7 +277,7 @@ Green is trusted (`SURVEYED` or `FROM-SLD`).
 
 ---
 
-## 9. Collection order and effort
+## 10. Collection order and effort
 
 | Tier | What to collect | Effort | What it unlocks |
 |---|---|---|---|
@@ -215,11 +285,12 @@ Green is trusted (`SURVEYED` or `FROM-SLD`).
 | **1 — do this first** | `PARENT_ID` + `SPUR_ID` for every DTC | 2–4 h per feeder, reading the existing SLD | correct trunk, correct laterals, no short cuts, downstream kVA per spur |
 | **2** | pole rows and pole coordinates | 1 field day per feeder | branch points in the right place, true span lengths |
 | **3** | `BENDS` for spans that do not run straight | 1–2 h per feeder from Google Earth | line follows roads instead of crossing blocks |
-| **4** | `CONDUCTOR` per span, `NORMALLY` on GOS/RMU | from the register | conductor register on the drawing, open points, later load flow |
+| **4** | `CONDUCTOR` per span, `NORMALLY` on GOS/RMU, `WAY` on every RMU child | from the register | conductor register on the drawing, open points, which terminal each cable lands on, later load flow |
 | **5** | `PHASE` per DTC | from the register | 1φ/3φ symbols and phase-wise totals |
 
 Tier 1 is the whole ask. Tiers 2–5 can follow over time; the template is designed so you never have
-to redo tier 1.
+to redo tier 1. The two units only need tier 4's `WAY` work if you care which terminal each cable
+lands on — the drawing already labels them as five-way units.
 
 ### How to do tier 1 quickly
 
@@ -237,7 +308,7 @@ run `--topology-template --force` and your edits will be discarded.
 
 ---
 
-## 10. Where to get the data
+## 11. Where to get the data
 
 | Source | Covers | Notes |
 |---|---|---|
@@ -252,7 +323,7 @@ Service connections and meter data do not affect the feeder diagram.
 
 ---
 
-## 11. What changes in the output once this is supplied
+## 12. What changes in the output once this is supplied
 
 When the tool reads a completed topology workbook:
 
@@ -261,15 +332,17 @@ When the tool reads a completed topology workbook:
 * DTC symbol at its surveyed position, joined by a short service tap — not projected onto the line
 * spur labels (`S1 Kote Road`, …) and per-spur DTC count / kVA in the summary table
 * GOS drawn inline on the correct span, open or closed as recorded
-* RMU drawn with its incoming and outgoing ways, so the ring reads correctly
+* RMU drawn as a five-way unit, with each child cable arriving on its recorded way, so the ring reads
+  correctly and a spare way is visibly spare
 * `UNPOSITIONED` box still holds anything without coordinates — nothing disappears
 * downstream count and kVA per section available for the feasibility reports
+* which DTCs each RMU way isolates, straight from `NODES!WAY` + `RMU WAYS`
 
 None of this changes the schematic layout, which already ignores geography.
 
 ---
 
-## 12. Validation the tool will run
+## 13. Validation the tool will run
 
 Before drawing, the topology reader should reject or flag:
 
@@ -284,33 +357,53 @@ Before drawing, the topology reader should reject or flag:
 8. a DTC/HT code that does not exist in the master
 9. `SPUR_ID` used on two different feeders without a `FEEDER` value
 10. a `BENDS` row whose span does not exist in `NODES`
+11. a `WAY` value on a node whose parent is not an `RMU`
+12. a `WAY` value that is not one of `ODout`, `VL1`, `VL2`, `VL3` — `ODin` belongs to the RMU row,
+    not to its children
+13. the same `RMU_ID` + `WAY` twice on `RMU WAYS`, or a way used by a child but missing from that
+    sheet
+14. two children of one RMU claiming the same way (physically impossible — one cable per terminal)
+15. a `WAY = NO` on `RMU WAYS` feeding a child marked `NC`, i.e. a node recorded downstream of an open
+    point
 
 Errors stop the run with the row number; warnings are printed and the drawing continues.
 
 ---
 
-## 13. Worked example
+## 14. Worked example
 
 The `EXAMPLE` sheet is a small complete feeder. The essential rows:
 
-| NODE_ID | TYPE | PARENT_ID | SPUR_ID | Reading |
+| NODE_ID | TYPE | PARENT_ID | SPUR_ID | WAY | Reading |
+|---|---|---|---|---|---|
+| `MUSS-DEMO` | MUSS | *(blank)* | `T` | | source |
+| `P-001` | POLE | `MUSS-DEMO` | `T` | | trunk |
+| `GOS-01` | GOS | `P-001` | `T` | | switch in the trunk |
+| `SCD-01` | DTC | `P-001` | `T` | | taps the pole, not the line |
+| `P-002` | POLE | `GOS-01` | `T` | | branch point |
+| `P-010` | POLE | `P-002` | `S1` | | first pole of the lateral |
+| `SCD-07` | DTC | `P-010` | `S1` | | on the lateral |
+| `RMU-DEMO` | RMU | `P-002` | `T` | | fed from `P-002` — that link is way `ODin` |
+| `P-003` | POLE | `RMU-DEMO` | `T` | `ODout` | leaves the RMU by way `ODout` |
+| `SCD-08` | DTC | `RMU-DEMO` | `T` | `VL1` | leaves the RMU by way `VL1` |
+
+And the matching `RMU WAYS` rows for that unit:
+
+| RMU_ID | WAY | DIRECTION | NORMALLY | Reading |
 |---|---|---|---|---|
-| `MUSS-DEMO` | MUSS | *(blank)* | `T` | source |
-| `P-001` | POLE | `MUSS-DEMO` | `T` | trunk |
-| `GOS-01` | GOS | `P-001` | `T` | switch in the trunk |
-| `SCD-01` | DTC | `P-001` | `T` | taps the pole, not the line |
-| `P-002` | POLE | `GOS-01` | `T` | branch point |
-| `P-010` | POLE | `P-002` | `S1` | first pole of the lateral |
-| `SCD-07` | DTC | `P-010` | `S1` | on the lateral |
-| `RMU-DEMO` | RMU | `P-002` | `T` | way in from `P-002`, way out to `P-003` |
-| `P-003` | POLE | `RMU-DEMO` | `T` | continues beyond the RMU |
+| `RMU-DEMO` | `ODin` | IN | `NC` | fed from `P-002`; no child names this way |
+| `RMU-DEMO` | `ODout` | OUT | `NC` | carries `P-003` |
+| `RMU-DEMO` | `VL1` | OUT | `NC` | carries `SCD-08` |
+| `RMU-DEMO` | `VL2` | OUT | `NC` | spare |
+| `RMU-DEMO` | `VL3` | OUT | `NO` | spare, normally open |
 
 `P-002` has two children (`P-010` and `RMU-DEMO`) — that single fact is what makes `S1` a lateral.
-No separate “spur” table is needed to express it.
+No separate “spur” table is needed to express it. The RMU's five rows describe terminals, not
+connections: `P-003` appears once, parented to `RMU-DEMO` with `WAY = ODout`.
 
 ---
 
-## 14. Decisions needed from you
+## 15. Decisions needed from you
 
 1. **Which run is the trunk** on each feeder? The template assumes the longest path from the MUSS.
    If the main road is a different run, say which, or set `SPUR_ID` by hand.
@@ -321,10 +414,14 @@ No separate “spur” table is needed to express it.
 4. **Are the RMUs in a closed ring or a radial chain?** If closed, the parallel path needs a
    separate tie representation.
 5. **Is `PHASE` recorded anywhere** (1φ/3φ per DTC)? It is not in the current master.
+6. **Which way does each cable use** on the two RMUs — `ODout`, `VL1`, `VL2` or `VL3`? Nothing in the
+   master records it; `NODES!WAY` is where it goes once someone reads it off the unit.
+7. **Are any RMU ways normally open** (a spare way left open, or an open ring point)? Everything is
+   pre-filled `NC`.
 
 ---
 
-## 15. Quick checklist
+## 16. Quick checklist
 
 ```
 [ ] Copy template/TOPOLOGY TEMPLATE.xlsx to a working name (keep the blank one)
@@ -335,7 +432,8 @@ No separate “spur” table is needed to express it.
 [ ] Add pole rows where the branch point matters
 [ ] Add BENDS only where a line must follow a road
 [ ] Fill SPURS.LABEL with the names used on the hand drawing
-[ ] Check the §12 rules, then send the file back
+[ ] Put a WAY on every child of an RMU, and label the ways on RMU WAYS
+[ ] Check the §13 rules, then send the file back
 ```
 
 Rebuild the blank template from the current master at any time:

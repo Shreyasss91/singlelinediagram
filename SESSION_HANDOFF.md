@@ -7,6 +7,11 @@
 > `outputs\<date>\`. Two files are new — `template\TOPOLOGY TEMPLATE.xlsx` (the connection data to
 > fill in) and `TOPOLOGY_DATA_REQUIREMENTS.md` (why it is needed and how to collect it). The newest
 > CHANGELOG entry covers the move. File locations in sections 2–4 below describe the earlier state.
+>
+> **Update 3:** an RMU is now modelled as a **five-way unit** — `ODin`, `ODout`, `VL1`, `VL2`, `VL3`.
+> `NODES` gained a `WAY` column (which terminal a child leaves by) and the workbook gained an
+> `RMU WAYS` sheet (the terminals themselves). RMU symbols are labelled `5-way`. Sections 2–5 below
+> predate that change; see the newest CHANGELOG entry.
 
 ---
 

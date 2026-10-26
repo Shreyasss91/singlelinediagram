@@ -35,7 +35,7 @@ SLD TOOL\
 | `DTC DETAILS U4.xlsx` | The DTC master. **The script reads this file from this folder by default.** |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | Two-tab template: a blank A3 sheet and a symbol library (MUSS, DTC, HT, GOS, RMU, junction, bus). |
 | `template/TOPOLOGY TEMPLATE.xlsx` | One row per node with its parent. Pre-filled from the master with a first-draft connection; see §8 and `TOPOLOGY_DATA_REQUIREMENTS.md`. |
-| `template/route_template.csv` | Format sample for surveyed pole coordinates (`--route`). Values are examples only. |
+| `template/route_template.csv` | Format sample for surveyed pole coordinates (`--route`). Values are examples only; the optional `WAY` column shows a run entering and leaving an RMU. |
 | `outputs/<date>/` | Every generated sheet goes here, named after the feeder and layout. Today's runs do not overwrite yesterday's. |
 | `TOPOLOGY_DATA_REQUIREMENTS.md` | The data-collection guide: what is missing, the field specification, how spurs are derived, where to get each item. |
 
@@ -202,7 +202,8 @@ horizontally.
 
 HT services and RMUs from sheet `NON DTC NODES` are appended after the DTCs on the last lateral, so
 they are present on the sheet even though a schematic has no geography — an RMU box there shows the
-asset exists, not where it sits.
+asset exists, not where it sits. RMU boxes are labelled `5-way`, because every unit in this network
+has one incoming and four outgoing ways (see §8).
 
 Use it when you want a **neat drawing** for submission. Use `--geo` when you want the drawing to
 **look like the network on the ground**.
@@ -273,8 +274,12 @@ dense cluster.
 
 Every RMU from sheet `NON DTC NODES` that belongs to this feeder is drawn as a `90 × 24` box marked
 `RMU` at its surveyed position, connected by a stub to the nearest point on the trunk, with its name
-underneath. In the dense Bazaar area the box searches 8 directions × 4 distances for a clear spot,
-so it never covers a DTC — the stub still marks the real position.
+and `5-way` underneath. In the dense Bazaar area the box searches 8 directions × 4 distances for a
+clear spot, so it never covers a DTC — the stub still marks the real position.
+
+An RMU is a five-way unit — `ODin`, `ODout`, `VL1`, `VL2`, `VL3` — so the box is a single symbol, not
+five terminals: the drawing shows that the asset exists on that spot, while which cable lands on
+which way is recorded in the topology workbook (§8).
 
 ### Reading the scale line
 
@@ -295,17 +300,22 @@ CSV — the trunk can follow the real line instead of an inferred one.
 Format: one row per pole, **in order along the line**, `.csv` or `.xlsx`:
 
 ```
-NODE_ID,LAT,LONG
-MUSS,13.93050,75.58580
-P-001,13.92990,75.58460
-P-002,13.92900,75.58330
-P-003,13.92800,75.58200
+NODE_ID,LAT,LONG,WAY
+MUSS,13.93050,75.58580,
+P-001,13.92990,75.58460,
+P-002,13.92900,75.58330,
+RMU-KOTE-ROAD,13.92850,75.58265,ODin
+RMU-KOTE-ROAD,13.92850,75.58265,ODout
+P-003,13.92800,75.58200,
 ```
 
 * NODE_ID is free text (a pole number is ideal).
 * LAT/LONG decimal degrees. A header row is skipped automatically because it is not numeric.
 * Rows without two valid numbers are ignored.
 * For `.xlsx`, the first sheet is read and the same column order applies.
+* `WAY` is **optional and ignored** here. It exists so the same file can show which terminal a run
+  enters and leaves an RMU by: the RMU row is written twice, once as `ODin` and once as `ODout`, at
+  the same coordinates. Only the topology workbook (§8) acts on the value.
 
 Each DTC is then attached to the **nearest point on the drawn line** by perpendicular projection,
 and its spur is drawn from there. `template/route_template.csv` shows the format — its numbers are
@@ -327,16 +337,21 @@ The fix is one extra column per node: **`PARENT_ID`**, the node immediately upst
 MUSS. Read together, the parent links are the whole feeder tree — trunk, spurs and the order of
 equipment along each one.
 
+The one addition is at an RMU: because the unit has five ways, a child of an RMU also names the way
+it leaves by in **`WAY`**. The link into the unit is `ODin`, so it needs nothing extra — see
+“RMUs: five ways, one row” below.
+
 ### The template
 
 `template/TOPOLOGY TEMPLATE.xlsx` is pre-filled from the master:
 
 | Sheet | What it holds |
 |---|---|
-| `NODES` | one row per DTC, HT, MUSS, RMU — 128 rows today. `PARENT_ID` and `SPUR_ID` are the two columns to correct. |
+| `NODES` | one row per DTC, HT, MUSS, RMU — 128 rows today. `PARENT_ID`, `SPUR_ID` and `WAY` are the columns to correct. |
 | `SPURS` | the laterals found in `NODES`, with DTC count and connected kVA. Add a `LABEL` for each one. |
+| `RMU WAYS` | the five ways of every RMU — `ODin`, `ODout`, `VL1`, `VL2`, `VL3` — with direction, normal state and label. 10 rows today, all pre-filled `NC`. |
 | `BENDS` | optional shape points, for a span that must follow a road instead of a straight line. |
-| `EXAMPLE` | a small complete feeder showing exactly how the rows read. |
+| `EXAMPLE` | a small complete feeder showing exactly how the rows read, including a five-way RMU. |
 
 `PARENT_ID` is pre-filled from a minimum spanning tree and marked `BASIS = INFERRED` — amber, and
 to be treated as a first draft. `BASIS = UNKNOWN` (14 rows) means there was no usable coordinate,
@@ -352,6 +367,35 @@ Rebuild it from the current master when the workbook changes:
 python sld_generator.py --topology-template          # refuses to overwrite a filled file
 python sld_generator.py --topology-template --force  # discards your edits
 ```
+
+### RMUs: five ways, one row
+
+An RMU here is **one node with five terminals**, not a link in a chain:
+
+| Way | Direction | Meaning |
+|---|---|---|
+| `ODin` | in | the incoming cable — the RMU is fed through this way |
+| `ODout` | out | the through way to the next unit or pole |
+| `VL1`, `VL2`, `VL3` | out | the three outgoing ways |
+
+Two places, two jobs:
+
+* **`NODES!WAY`** answers *which way did this child leave by*. Any row whose `PARENT_ID` is an RMU
+  must name `ODout`, `VL1`, `VL2` or `VL3`. The link **into** the RMU is way `ODin`, so it needs no
+  `WAY` value — the RMU's own `PARENT_ID` already says where it is fed from. Every other row leaves
+  `WAY` blank.
+* **`RMU WAYS`** answers *what is on the switchgear*. Five rows per unit: direction, normal state
+  (`NC`/`NO`) and a label per way, so spare ways and open ring points have somewhere to live.
+
+```
+                 ┌── ODout ── P-003 ── ...
+P-002 ── ODin ──[RMU]── VL1 ── SCD-08
+                 ├── VL2 ── (spare)
+                 └── VL3 ── (spare)
+```
+
+Keeping the connections in `NODES` alone means a child is still parented exactly once, so the tree
+cannot disagree with itself. `RMU WAYS` is a register, not a second copy of the tree.
 
 ### How a spur is defined
 
@@ -413,8 +457,8 @@ Update column `I` and regenerate. The summary table and the symbol both follow.
 **A new RMU or substation is commissioned**
 Add a row to sheet `NON DTC NODES` — the name must contain `RMU` or `MUSS` — then regenerate. An RMU
 attaches itself to whichever feeder's DTCs are nearest; a MUSS is matched to the station text in
-column `J` of sheet `ALL`. No code change, no configuration. Then add the RMU's way position to the
-topology template.
+column `J` of sheet `ALL`. No code change, no configuration. Then rebuild the topology template (or
+add the five `RMU WAYS` rows by hand) and put a `WAY` on every child of the unit.
 
 **You need a sheet for a feeder that has never been drawn**
 Add its DTCs to `ALL` with the feeder name, run `--list` to confirm it appears, then generate.
@@ -446,6 +490,9 @@ come from the same rows as the spur lines.
 * **RMU attachment is approximate.** An RMU is drawn at its surveyed position but connected to the
   nearest point of an *inferred* trunk; with a real `--route` or a completed topology workbook both
   ends become correct.
+* **RMU ways are not drawn yet.** The box says `5-way`, but the drawing does not show five terminals
+  or which cable lands on which one — that needs the topology workbook to be read (§8). Which way each
+  cable uses is not recorded in the master at all, so it cannot be guessed.
 * **Long names are cropped** to 22 characters on the sheet. The full name stays in the workbook.
 * **kVA categories in the summary table** are fixed at 25/63/100/200/250 plus any other value found
   in the data.
@@ -503,9 +550,10 @@ At the time of writing:
 | **HT service** | High-tension consumer billed on contracted demand, drawn as a box marked `HT`. |
 | **MUSS** | Main Urban Sub Station — the 110/11 kV source where the feeder starts. |
 | **GOS** | Gang Operated Switch — a hand-operated isolator, drawn as a diagonal bar on the line. |
-| **RMU** | Ring Main Unit — a switchgear enclosure with several ways. |
+| **RMU** | Ring Main Unit — a switchgear enclosure with five ways: `ODin` in, `ODout` plus `VL1`–`VL3` out. |
 | **Feeder** | The 11 kV line leaving the MUSS; the subject of one sheet. |
 | **Trunk** | The main run of the feeder from the MUSS; laterals branch off it. |
 | **Spur / lateral** | A branch leaving the trunk. Drawn lighter than the trunk and labelled `S1`, `S2`… |
 | **Parent** | The node immediately upstream of another, in the direction of the MUSS. The `PARENT_ID` column is the whole connection record. |
+| **Way** | One terminal of an RMU. `ODin` is the incoming way, `ODout` and `VL1`–`VL3` are the outgoing ways. `NODES!WAY` names the way a child leaves by. |
 | **`.drawio`** | Plain-XML drawing file for draw.io / diagrams.net. |

@@ -465,7 +465,9 @@ def build_schematic(dtcs, hts, label, station, rmus=(), title_text=None, subtitl
             tail = f" ({item['kva']} kVA)" if item.get("kva") else ""
             label_txt, face, w_item, style = f"{name}<br><b>{item['code']}</b>{tail}", "HT", DTC_W, ST_HT
         elif kind == "RMU":
-            label_txt, face, w_item, style = f"<b>{crop_name(item['name'], 24)}</b>", "RMU", 90, ST_RMU
+            label_txt = (f"<b>{crop_name(item['name'], 24)}</b>"
+                         "<br><font style='font-size:7px'>5-way</font>")
+            face, w_item, style = "RMU", 90, ST_RMU
         else:
             label_txt = f"{name}<br><b>{item['code']}</b>"
             face = str(item["kva"]) if item.get("kva") else "?"
@@ -555,7 +557,12 @@ def tree_ends(parent):
 
 
 def read_route(path):
-    """Read surveyed pole coordinates: NODE_ID, LAT, LONG (csv or xlsx)."""
+    """Read surveyed pole coordinates: NODE_ID, LAT, LONG (csv or xlsx).
+
+    An optional 4th column, WAY, is ignored here: it names the RMU way a point
+    passes through, which only the topology workbook uses. Repeating an RMU row
+    (once as ODin, once as ODout) shows the run entering and leaving the unit.
+    """
     pts = []
     if path.lower().endswith((".xlsx", ".xlsm")):
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -768,7 +775,7 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
         a_id = d.vertex("", ax - 1.5, ay - 1.5, 3, 3, ST_HIDDEN)
         d.edge(a_id, node, ST_STUB)
         taken.append((bx - rw / 2, by - rh / 2, bx + rw / 2, by + rh / 2))
-        place_label(d, bx, by, f"<b>{nd['name']}</b>", taken, bw=rw, bh=rh)
+        place_label(d, bx, by, f"<b>{nd['name']}</b><br>5-way", taken, bw=rw, bh=rh)
 
     # ---- MUSS --------------------------------------------------------------
     if anchor_id:
@@ -866,8 +873,8 @@ def build_template() -> Workbook:
     lib.vertex("MESCOM SYMBOL LIBRARY  -  copy a symbol, paste it on the A3 sheet",
                MARGIN_L, 30, 900, 24, ST_TITLE)
 
-    def caption(text, x, y):
-        lib.vertex(text, x - 60, y, 200, 26, ST_NOTE)
+    def caption(text, x, y, h=26):
+        lib.vertex(text, x - 60, y, 200, h, ST_NOTE)
 
     lib.vertex("110/11 KV<br>MANDLI", 90, 90, MUSS_W, MUSS_H, ST_MUSS)
     caption("MUSS / source", 90, 150)
@@ -883,7 +890,7 @@ def build_template() -> Workbook:
     lib.vertex("<b>GOS</b>", 60, 455, 100, 16, ST_LBL)
     caption("Gang operated switch", 90, 478)
     lib.vertex("RMU", 90, 530, 90, 24, ST_RMU)
-    caption("Ring main unit", 90, 560)
+    caption("Ring main unit, 5-way:<br>ODin, ODout, VL1, VL2, VL3", 90, 560, h=34)
     lib.vertex("", 96, 620, 4, 4, ST_JUNC)
     lib.vertex("<b>tee / junction</b>", 40, 630, 120, 16, ST_LBL)
     lib.vertex("", 60, 690, 160, 2, ST_BUS)
@@ -904,10 +911,18 @@ def build_template() -> Workbook:
 # ----------------------------------------------------------------------------
 NODE_HEADERS = [
     ("NODE_ID", 15), ("TYPE", 9), ("NAME", 34), ("FEEDER", 12),
-    ("LAT", 12), ("LONG", 12), ("PARENT_ID", 15), ("SPUR_ID", 8),
+    ("LAT", 12), ("LONG", 12), ("PARENT_ID", 15), ("SPUR_ID", 8), ("WAY", 9),
     ("KVA", 7), ("PHASE", 7), ("NORMALLY", 9), ("CONDUCTOR", 14),
     ("BASIS", 10), ("REMARKS", 52),
 ]
+
+# An RMU is a five-way switchgear: one incoming way and four ways out.
+# ODin is the way the RMU itself is fed through, so it is recorded by the RMU's
+# own PARENT_ID; every child of an RMU names the way it leaves by in NODES!WAY.
+RMU_WAYS = [("ODin", "IN"), ("ODout", "OUT"), ("VL1", "OUT"),
+            ("VL2", "OUT"), ("VL3", "OUT")]
+RMU_WAY_HEADERS = [("RMU_ID", 15), ("WAY", 9), ("DIRECTION", 10), ("NORMALLY", 10),
+                   ("LABEL", 30), ("NOTES", 56)]
 
 
 def _node_id(kind: str, name: str) -> str:
@@ -1011,12 +1026,14 @@ def build_topology_template(master_path: str, out_path: str) -> str:
     for n in [x for x in nodes if x["kind"] == "MUSS"]:
         feeds = [f for f in feeder_names if find_station_node([n], station_of[f])]
         rows.append([_node_id("MUSS", n["name"]), "MUSS", n["name"], "", n["lat"], n["lon"],
-                     "", "T", "", "", "", "", "SOURCE",
+                     "", "T", "", "", "", "", "", "SOURCE",
                      "Root - no parent. Feeds: " + (", ".join(feeds) or "?")])
     for n in [x for x in nodes if x["kind"] == "RMU"]:
         rows.append([_node_id("RMU", n["name"]), "RMU", n["name"], n.get("feeder", ""),
-                     n["lat"], n["lon"], "", "", "", "", "NC", "", "UNKNOWN",
-                     "Set PARENT_ID = incoming way; its children are the other ways"])
+                     n["lat"], n["lon"], "", "", "", "", "", "NC", "", "UNKNOWN",
+                     "5-way RMU: ODin, ODout, VL1, VL2, VL3. Set PARENT_ID = the node it is "
+                     "fed from (that link is way ODin); each child names its way in WAY. "
+                     "See the RMU WAYS sheet"])
     for f in feeder_names:
         parents, spurs, _, notes = topo[f]
         sel = sorted([d for d in dtcs if d["feeder"] == f],
@@ -1029,11 +1046,11 @@ def build_topology_template(master_path: str, out_path: str) -> str:
                 others = [c for c in dupes[key] if c != d["code"]]
                 remark = (remark + "; " if remark else "") + "shared coordinate with " + ", ".join(others)
             rows.append([d["code"], "DTC", d["name"], f, d["lat"], d["lon"], parent,
-                         spurs.get(d["code"], ""), d["kva"], "", "", "",
+                         spurs.get(d["code"], ""), "", d["kva"], "", "", "",
                          "INFERRED" if parent else "UNKNOWN", remark])
         for h in sorted([x for x in hts if x["feeder"] == f],
                         key=lambda x: int(re.sub(r"\D", "", x["code"]) or 0)):
-            rows.append([h["code"], "HT", h["name"], f, None, None, "", "", h["kva"],
+            rows.append([h["code"], "HT", h["name"], f, None, None, "", "", "", h["kva"],
                          "", "", "", "UNKNOWN", "No GPS - set PARENT_ID to the tap pole"])
 
     # ---- workbook shell ----------------------------------------------------
@@ -1042,6 +1059,7 @@ def build_topology_template(master_path: str, out_path: str) -> str:
     rm.title = "READ ME"
     ws = wb.create_sheet("NODES")
     sp = wb.create_sheet("SPURS")
+    rw = wb.create_sheet("RMU WAYS")
     bd = wb.create_sheet("BENDS")
     ex = wb.create_sheet("EXAMPLE")
     ls = wb.create_sheet("LISTS")
@@ -1063,7 +1081,7 @@ def build_topology_template(master_path: str, out_path: str) -> str:
             sheet.column_dimensions[c.column_letter].width = width
         sheet.row_dimensions[row].height = 30
 
-    def body(sheet, row, values, ncols, wrap_cols=(3, 14)):
+    def body(sheet, row, values, ncols, wrap_cols=(3, 15)):
         for i in range(1, ncols + 1):
             v = values[i - 1] if i - 1 < len(values) else None
             c = sheet.cell(row=row, column=i, value=v)
@@ -1071,7 +1089,7 @@ def build_topology_template(master_path: str, out_path: str) -> str:
             c.border = box
             c.alignment = Alignment(vertical="top",
                                     wrap_text=i in wrap_cols,
-                                    horizontal="center" if i in (2, 8, 9, 10, 11, 13) else "left")
+                                    horizontal="center" if i in (2, 8, 9, 10, 11, 12, 14) else "left")
             if i in (5, 6):
                 c.number_format = "0.0000000"
         if row % 2 == 0:
@@ -1100,7 +1118,7 @@ def build_topology_template(master_path: str, out_path: str) -> str:
         r += 1
 
     para("MESCOM SLD TOOL  -  TOPOLOGY DATA TEMPLATE", bold=True, size=16, color="1F4E79", height=24)
-    para("Fill in PARENT_ID and SPUR_ID. Everything else is already populated from "
+    para("Fill in PARENT_ID, SPUR_ID and WAY. Everything else is already populated from "
          "'DTC DETAILS U4.xlsx'.", size=10, color="595959")
     r += 1
     para("1.  WHAT THIS FILE IS FOR", bold=True, size=11, color="1F4E79")
@@ -1112,7 +1130,7 @@ def build_topology_template(master_path: str, out_path: str) -> str:
          "node'. Read together, the rows are the whole feeder tree: the trunk, every spur, and the "
          "order of DTCs along each one.")
     r += 1
-    para("2.  THE FIVE RULES", bold=True, size=11, color="1F4E79")
+    para("2.  THE SIX RULES", bold=True, size=11, color="1F4E79")
     para("1.  One row per physical node. NODE_ID must be unique.")
     para("2.  Exactly one PARENT_ID per row - the node immediately upstream, towards the MUSS. "
          "Only a MUSS row has a blank parent.")
@@ -1121,12 +1139,18 @@ def build_topology_template(master_path: str, out_path: str) -> str:
     para("4.  Power flows FROM the parent TO the node. Do not write the child in the parent's row.")
     para("5.  SPUR_ID is T for the main run from the MUSS, S1, S2, ... for laterals. Every node on "
          "the same lateral carries the same SPUR_ID.")
+    para("6.  WAY is only used when the parent is an RMU. An RMU is a five-way unit - ODin, ODout, "
+         "VL1, VL2, VL3 - so a child of an RMU must say which way it leaves by. Leave WAY blank "
+         "everywhere else.")
     r += 1
     para("3.  SHEETS", bold=True, size=11, color="1F4E79")
     para("NODES    The only mandatory sheet. One row per MUSS, RMU, GOS, pole, DTC and HT service. "
          "PARENT_ID is the connection; everything else describes the node.")
     para("SPURS    Auto-generated register of the laterals found in NODES. Rename them here "
          "(e.g. 'Kote Road lateral'); the names are for the drawing, not for the tree.")
+    para("RMU WAYS One row per way of every RMU, five per unit: ODin, ODout, VL1, VL2, VL3. "
+         "Records the normal state and the label of each way. Prefilled from the RMU rows in "
+         "NODES; it describes the switchgear, it does not carry the connections.")
     para("BENDS    Optional. Add rows only where a span has to bend round a block instead of running "
          "straight from parent to child. SEQ orders the bend points along that one span.")
     para("EXAMPLE  A small, complete feeder showing exactly how the rows should read. Copy its "
@@ -1144,11 +1168,15 @@ def build_topology_template(master_path: str, out_path: str) -> str:
          "the workbook. They need a manual parent.")
     para("•  SPUR_ID is also inferred: the longest path from the MUSS is called T, every branch "
          "off it is numbered S1, S2, ...")
+    para(f"•  RMU WAYS already lists all {len([x for x in nodes if x['kind'] == 'RMU']) * 5} ways "
+         f"of the {len([x for x in nodes if x['kind'] == 'RMU'])} RMUs, normally closed. Change a "
+         "way to NO only if it really sits open.")
     r += 1
     para("5.  COLOURS", bold=True, size=11, color="1F4E79")
     para("Amber BASIS      the parent is inferred - check it")
     para("Orange PARENT_ID  no parent yet - the node will be left out of the tree")
     para("Green BASIS      surveyed or read off the existing SLD - trusted")
+    para("Orange WAY       a way is filled in but the node has no parent - it cannot be placed")
     r += 1
     para("6.  WHAT TO DO FIRST", bold=True, size=11, color="1F4E79")
     para("Start with MRS F1 (the largest feeder). Open the hand-drawn SLD beside this file and, for "
@@ -1172,10 +1200,10 @@ def build_topology_template(master_path: str, out_path: str) -> str:
     header(ws, 1, NODE_HEADERS)
     for i, values in enumerate(rows, start=2):
         body(ws, i, values, len(NODE_HEADERS))
-    fit_rows(ws, 2, rows, 2, 13, 34, 50)
+    fit_rows(ws, 2, rows, 2, 14, 34, 50)
     last = len(rows) + 1
     ws.freeze_panes = "B2"
-    ws.auto_filter.ref = f"A1:N{last}"
+    ws.auto_filter.ref = f"A1:O{last}"
     ws.sheet_view.zoomScale = 90
     ws.print_title_rows = "1:1"
     ws.page_setup.orientation = "landscape"
@@ -1208,6 +1236,22 @@ def build_topology_template(master_path: str, out_path: str) -> str:
     sp.freeze_panes = "A2"
     sp.auto_filter.ref = f"A1:H{len(spur_rows) + 1}"
 
+    # ---- RMU WAYS ----------------------------------------------------------
+    header(rw, 1, RMU_WAY_HEADERS)
+    way_rows = []
+    for n in [x for x in nodes if x["kind"] == "RMU"]:
+        rid = _node_id("RMU", n["name"])
+        for way, direction in RMU_WAYS:
+            note = ("Incoming way - the RMU's own PARENT_ID is this link"
+                    if way == "ODin" else
+                    "A child of this RMU names this way in NODES!WAY")
+            way_rows.append([rid, way, direction, "NC", "", note])
+    for i, values in enumerate(way_rows, start=2):
+        body(rw, i, values, len(RMU_WAY_HEADERS), wrap_cols=(5, 6))
+    fit_rows(rw, 2, way_rows, 4, 5, 28, 54)
+    rw.freeze_panes = "A2"
+    rw.auto_filter.ref = f"A1:F{len(way_rows) + 1}"
+
     # ---- BENDS -------------------------------------------------------------
     header(bd, 1, [("FROM_ID", 15), ("TO_ID", 15), ("SEQ", 7), ("LAT", 12), ("LONG", 12),
                    ("NOTES", 46)])
@@ -1221,47 +1265,73 @@ def build_topology_template(master_path: str, out_path: str) -> str:
     ex.column_dimensions["B"].width = 118
     ex["B1"] = "EXAMPLE  -  a small feeder, filled in the required format"
     ex["B1"].font = Font(bold=True, size=13, color="1F4E79")
-    ex["B2"] = ("The trunk runs MUSS -> P-001 -> GOS-01 -> P-002 -> RMU -> P-003. "
-                "SCD-01 taps P-001. Spur S1 leaves the trunk at P-002 and feeds SCD-07. "
-                "Every row's PARENT_ID points upstream; SPUR_ID groups the branch.")
+    ex["B2"] = ("The trunk runs MUSS -> P-001 -> GOS-01 -> P-002 -> RMU (way ODin) -> P-003 "
+                "(way ODout). SCD-01 taps P-001 and SCD-08 leaves the RMU by way VL1. "
+                "Spur S1 leaves the trunk at P-002 and feeds SCD-07. Every row's PARENT_ID points "
+                "upstream; SPUR_ID groups the branch and WAY names the RMU way a child leaves by.")
     ex["B2"].alignment = Alignment(wrap_text=True, vertical="top")
     ex["B2"].font = Font(size=10)
+    ex.merge_cells("B2:O2")
     ex.row_dimensions[2].height = 32
     ex_head = 4
     header(ex, ex_head, NODE_HEADERS)
     example_rows = [
-        ["MUSS-DEMO", "MUSS", "110/11KV DEMO MUSS", "DEMO", 13.930000, 75.585000, "", "T",
+        ["MUSS-DEMO", "MUSS", "110/11KV DEMO MUSS", "DEMO", 13.930000, 75.585000, "", "T", "",
          None, "", "", "", "SURVEYED", "Root - no parent"],
-        ["P-001", "POLE", "Pole 1", "DEMO", 13.929800, 75.584800, "MUSS-DEMO", "T",
+        ["P-001", "POLE", "Pole 1", "DEMO", 13.929800, 75.584800, "MUSS-DEMO", "T", "",
          None, "", "", "3x95 ABC", "SURVEYED", ""],
-        ["GOS-01", "GOS", "DEMO GOS", "DEMO", 13.929600, 75.584600, "P-001", "T",
+        ["GOS-01", "GOS", "DEMO GOS", "DEMO", 13.929600, 75.584600, "P-001", "T", "",
          None, "", "NC", "3x95 ABC", "SURVEYED", "Normally closed"],
-        ["SCD-01", "DTC", "GANESHA TC", "DEMO", 13.929550, 75.584550, "P-001", "T",
+        ["SCD-01", "DTC", "GANESHA TC", "DEMO", 13.929550, 75.584550, "P-001", "T", "",
          250, "3PH", "", "3x25 ABC", "SURVEYED", "Tap off P-001, 30 m service"],
-        ["P-002", "POLE", "Pole 2", "DEMO", 13.929300, 75.584300, "GOS-01", "T",
+        ["P-002", "POLE", "Pole 2", "DEMO", 13.929300, 75.584300, "GOS-01", "T", "",
          None, "", "", "3x95 ABC", "SURVEYED", "Branch point for S1"],
-        ["P-010", "POLE", "Branch pole", "DEMO", 13.929250, 75.584250, "P-002", "S1",
+        ["P-010", "POLE", "Branch pole", "DEMO", 13.929250, 75.584250, "P-002", "S1", "",
          None, "", "", "3x95 ABC", "SURVEYED", "First pole of spur S1"],
-        ["SCD-07", "DTC", "TEMPLE STREET", "DEMO", 13.929200, 75.584200, "P-010", "S1",
+        ["SCD-07", "DTC", "TEMPLE STREET", "DEMO", 13.929200, 75.584200, "P-010", "S1", "",
          63, "3PH", "", "3x25 ABC", "SURVEYED", ""],
-        ["RMU-DEMO", "RMU", "DEMO RMU", "DEMO", 13.929350, 75.584350, "P-002", "T",
-         None, "", "NC", "3x95 ABC", "SURVEYED", "One way in from P-002, one way out to P-003"],
-        ["P-003", "POLE", "Pole 3", "DEMO", 13.929000, 75.584000, "RMU-DEMO", "T",
-         None, "", "", "3x95 ABC", "SURVEYED", "Continues beyond the RMU"],
+        ["RMU-DEMO", "RMU", "DEMO RMU", "DEMO", 13.929350, 75.584350, "P-002", "T", "",
+         None, "", "NC", "3x95 ABC", "SURVEYED",
+         "5-way unit. Fed from P-002 - that link is way ODin"],
+        ["P-003", "POLE", "Pole 3", "DEMO", 13.929000, 75.584000, "RMU-DEMO", "T", "ODout",
+         None, "", "", "3x95 ABC", "SURVEYED", "Continues beyond the RMU by way ODout"],
+        ["SCD-08", "DTC", "SCHOOL", "DEMO", 13.929380, 75.584320, "RMU-DEMO", "T", "VL1",
+         100, "3PH", "", "3x25 ABC", "SURVEYED", "Tapped off RMU way VL1"],
     ]
     for i, values in enumerate(example_rows, start=ex_head + 1):
         body(ex, i, values, len(NODE_HEADERS))
-    fit_rows(ex, ex_head + 1, example_rows, 2, 13, 34, 50)
+    fit_rows(ex, ex_head + 1, example_rows, 2, 14, 34, 50)
     bend_head = ex_head + len(example_rows) + 3
     ex.cell(row=bend_head - 1, column=2, value="BENDS  -  optional shape points for one span").font = \
         Font(bold=True, size=11, color="1F4E79")
     header(ex, bend_head, [("FROM_ID", 15), ("TO_ID", 15), ("SEQ", 7), ("LAT", 12),
                            ("LONG", 12), ("NOTES", 46)])
-    for i, values in enumerate([
-            ["P-001", "P-002", 1, 13.929700, 75.584900, "Line turns at the school corner"],
-            ["P-001", "P-002", 2, 13.929500, 75.584700, "Then runs along the compound wall"]],
-            start=bend_head + 1):
+    bend_rows = [
+        ["P-001", "P-002", 1, 13.929700, 75.584900, "Line turns at the school corner"],
+        ["P-001", "P-002", 2, 13.929500, 75.584700, "Then runs along the compound wall"],
+    ]
+    for i, values in enumerate(bend_rows, start=bend_head + 1):
         body(ex, i, values, 6, wrap_cols=(6,))
+    ways_head = bend_head + len(bend_rows) + 3
+    ex.cell(row=ways_head - 1, column=2,
+            value="RMU WAYS  -  the five ways of DEMO RMU, as listed on the RMU WAYS sheet").font = \
+        Font(bold=True, size=11, color="1F4E79")
+    header(ex, ways_head, RMU_WAY_HEADERS)
+    example_ways = [
+        ["RMU-DEMO", "ODin", "IN", "NC", "In from P-002", "Fed from P-002; no child row names this way"],
+        ["RMU-DEMO", "ODout", "OUT", "NC", "Out to P-003", "P-003 carries WAY = ODout"],
+        ["RMU-DEMO", "VL1", "OUT", "NC", "", "SCD-08 carries WAY = VL1"],
+        ["RMU-DEMO", "VL2", "OUT", "NC", "", "Spare way"],
+        ["RMU-DEMO", "VL3", "OUT", "NO", "", "Spare way, normally open"],
+    ]
+    for i, values in enumerate(example_ways, start=ways_head + 1):
+        body(ex, i, values, len(RMU_WAY_HEADERS), wrap_cols=(5, 6))
+    fit_rows(ex, ways_head + 1, example_ways, 4, 5, 28, 52)
+    # One width set for the whole sheet: the three tables share these columns.
+    # F is wide because both BENDS and RMU WAYS keep their free text there.
+    for col, width in zip("ABCDEFGHIJKLMNO",
+                          (15, 15, 34, 12, 12, 46, 15, 8, 9, 7, 7, 9, 14, 10, 52)):
+        ex.column_dimensions[col].width = width
 
     # ---- LISTS -------------------------------------------------------------
     lists = {
@@ -1269,6 +1339,9 @@ def build_topology_template(master_path: str, out_path: str) -> str:
         "B": ("PHASE", ["3PH", "1PH"]),
         "C": ("NORMALLY", ["NC", "NO"]),
         "D": ("BASIS", ["SOURCE", "INFERRED", "SURVEYED", "FROM-SLD", "UNKNOWN"]),
+        "E": ("WAY_ALL", [w for w, _ in RMU_WAYS]),
+        "F": ("WAY_CHILD", [w for w, d in RMU_WAYS if d == "OUT"]),
+        "G": ("DIRECTION", ["IN", "OUT"]),
     }
     for col, (name, values) in lists.items():
         ls[f"{col}1"] = name
@@ -1279,27 +1352,35 @@ def build_topology_template(master_path: str, out_path: str) -> str:
     ls.sheet_state = "hidden"
 
     # ---- validation and colour rules --------------------------------------
-    def dv(formula, cell_range):
+    def dv(formula, cell_range, sheet=ws):
         d = DataValidation(type="list", formula1=formula, allow_blank=True)
         d.error = "Pick a value from the list."
         d.errorTitle = "Invalid entry"
-        ws.add_data_validation(d)
+        sheet.add_data_validation(d)
         d.add(cell_range)
 
     dv("=LISTS!$A$2:$A$10", f"B2:B{last}")
-    dv("=LISTS!$B$2:$B$3", f"J2:J{last}")
-    dv("=LISTS!$C$2:$C$3", f"K2:K{last}")
-    dv("=LISTS!$D$2:$D$6", f"M2:M{last}")
+    dv("=LISTS!$B$2:$B$3", f"K2:K{last}")
+    dv("=LISTS!$C$2:$C$3", f"L2:L{last}")
+    dv("=LISTS!$D$2:$D$6", f"N2:N{last}")
+    dv("=LISTS!$F$2:$F$5", f"I2:I{last}")
+    way_last = len(way_rows) + 1
+    dv("=LISTS!$E$2:$E$6", f"B2:B{way_last}", rw)
+    dv("=LISTS!$G$2:$G$3", f"C2:C{way_last}", rw)
+    dv("=LISTS!$C$2:$C$3", f"D2:D{way_last}", rw)
 
     amber = PatternFill("solid", fgColor="FFF2CC")
     orange = PatternFill("solid", fgColor="FCE4D6")
     green = PatternFill("solid", fgColor="E2EFDA")
-    ws.conditional_formatting.add(f"M2:M{last}", FormulaRule(formula=['$M2="INFERRED"'], fill=amber))
-    ws.conditional_formatting.add(f"M2:M{last}", FormulaRule(formula=['$M2="UNKNOWN"'], fill=orange))
+    ws.conditional_formatting.add(f"N2:N{last}", FormulaRule(formula=['$N2="INFERRED"'], fill=amber))
+    ws.conditional_formatting.add(f"N2:N{last}", FormulaRule(formula=['$N2="UNKNOWN"'], fill=orange))
     ws.conditional_formatting.add(
-        f"M2:M{last}", FormulaRule(formula=['OR($M2="SURVEYED",$M2="FROM-SLD")'], fill=green))
+        f"N2:N{last}", FormulaRule(formula=['OR($N2="SURVEYED",$N2="FROM-SLD")'], fill=green))
     ws.conditional_formatting.add(
         f"G2:G{last}", FormulaRule(formula=['AND($B2<>"MUSS",$G2="")'], fill=orange))
+    # A way is only meaningful on a child of an RMU: flag one that has no parent.
+    ws.conditional_formatting.add(
+        f"I2:I{last}", FormulaRule(formula=['AND($I2<>"",$G2="")'], fill=orange))
 
     wb.save(out_path)
     return out_path

@@ -6,7 +6,69 @@ generator up to its current state.
 
 ---
 
-## 2026-10-26 · Newest — Template folder, dated output folders, topology data model
+## 2026-10-26 · Newest — Five-way RMUs: `WAY` column and the `RMU WAYS` sheet
+
+An RMU in this network is a five-way switchgear unit — `ODin`, `ODout`, `VL1`, `VL2`, `VL3` — not a
+two-terminal link in a chain. The topology format now records that: one `WAY` column on `NODES` for
+the terminal a child leaves by, and an `RMU WAYS` register for the terminals themselves.
+
+### Added
+- **`NODES!WAY` (column I)** — the RMU way a node leaves by: `ODout`, `VL1`, `VL2` or `VL3`. Blank on
+  every row whose parent is not an RMU, and blank on the RMU row itself: the link *into* an RMU is
+  way `ODin`, and the RMU's own `PARENT_ID` already names the node feeding it. So the model stays
+  one-parent-per-child, and a way is never written twice.
+- **Sheet `RMU WAYS`** — five rows per unit (`RMU_ID`, `WAY`, `DIRECTION`, `NORMALLY`, `LABEL`,
+  `NOTES`), 10 rows generated from the two RMUs in the master. `ODin` is `IN`, the other four `OUT`,
+  all pre-filled `NC`. A spare way has a row here even though it has no child in `NODES`.
+- **Dropdown lists for ways** — `LISTS` grew `WAY_ALL` (5 values, used on `RMU WAYS`), `WAY_CHILD`
+  (4 values, used on `NODES!WAY` — `ODin` is deliberately not offered to a child) and `DIRECTION`
+  (`IN`/`OUT`), with data validation on both sheets.
+- **A colour rule for a half-written connection** — `WAY` filled in but `PARENT_ID` blank turns
+  orange, because a way with no parent cannot be placed.
+- **Five-way examples** — the `EXAMPLE` sheet gains `SCD-08` hanging off `RMU-DEMO` way `VL1`, a
+  `WAY = ODout` on `P-003`, and a second block listing the five `RMU WAYS` rows for that unit.
+- **`WAY` in the route sample** — `template/route_template.csv` is now 4 columns, with
+  `RMU-KOTE-ROAD` written twice (once `ODin`, once `ODout` at the same coordinates) to show a run
+  entering and leaving the unit. `read_route()` ignores the column; the docstring says so.
+
+### Changed
+- **`NODES` is now A–O, not A–N.** Inserting `WAY` after `SPUR_ID` shifted `KVA`, `PHASE`,
+  `NORMALLY`, `CONDUCTOR`, `BASIS` and `REMARKS` one column right. Column widths, wrap columns,
+  centred columns, row-height fitting, the autofilter range, the validation ranges and the amber /
+  orange / green conditional formatting on `BASIS` all follow the new positions.
+- **RMU boxes are labelled `5-way`** — under the name on the schematic and in the geographical
+  layout, in small type so the box keeps its size. The library caption now reads
+  “Ring main unit, 5-way: ODin, ODout, VL1, VL2, VL3”.
+- **`READ ME` in the workbook** — six rules instead of five (the new one is `WAY`), an `RMU WAYS`
+  entry under sheets, the pre-filled way count, and the orange `WAY` colour explained.
+- **`TOPOLOGY_DATA_REQUIREMENTS.md`** — §3.4 rewritten as the five-way model with the terminal table
+  and both link directions, §4 re-specced A–O with `WAY` at I, a new §5 for `RMU WAYS` (which
+  renumbers §5–§15 to §6–§16), §10 tier 4 now includes `WAY`, §13 gains five validation rules
+  (`WAY` on a non-RMU child, `ODin` on a child, duplicated way, two children on one way, a `NC` node
+  downstream of a `NO` way), and §14 has a two-table worked example with the ways.
+- **`README.md`** — §5 and §6 describe the `5-way` label, §7 documents the optional `WAY` column in a
+  route file, §8 gains a “RMUs: five ways, one row” section plus the `RMU WAYS` row and the new
+  counts, §10 says to label the ways when a unit is commissioned, §11 records that the ways are not
+  drawn yet, and the glossary defines a way.
+
+### Regenerated
+- `template/TOPOLOGY TEMPLATE.xlsx` — 128 `NODES` rows in A–O, 10 `RMU WAYS` rows, 6 visible sheets
+  plus hidden `LISTS`. No `WAY` value is pre-filled in `NODES`: neither RMU has a recorded child, and
+  the spanning-tree guess never puts a DTC under one.
+- `template/MESCOM_SLD_TEMPLATE.drawio` (+ library PNG) with the five-way caption.
+- `outputs/2026-10-26/`: all four feeders in both layouts, with the `5-way` RMU labels.
+
+### Notes
+- `TOPOLOGY TEMPLATE.xlsx` is locked while Excel has it open; the rebuild reports `Permission denied`
+  until it is closed. The new version was generated to a temporary path first and checked before
+  replacing the tracked file.
+- Still a **collection format, not a drawing input**: `build_geo()` continues to infer the trunk by
+  MST and to read only `--route`. `WAY` is recorded now so the reader, when it is written, has the
+  data it needs; drawing five terminals per RMU is part of that same step.
+
+---
+
+## 2026-10-26 — Template folder, dated output folders, topology data model
 
 ### Added
 - **`template/` folder** — all reusable templates in one place: `MESCOM_SLD_TEMPLATE.drawio`,
