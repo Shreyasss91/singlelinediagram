@@ -17,9 +17,9 @@ Two layouts:
   --geo    - every DTC at its surveyed GPS position, trunk inferred by a
              minimum spanning tree (or taken from --route pole coordinates)
 
-Output: "<name> SLD.drawio" (or "<name> - GEO SLD.drawio"). Open it in
-draw.io / diagrams.net, or in VS Code with the "Draw.io Integration" extension.
-Drag a DTC and its line follows.
+Output: "outputs/<YYYY-MM-DD>/<name> SLD.drawio" (or "<name> - GEO SLD.drawio").
+Open it in draw.io / diagrams.net, or in VS Code with the "Draw.io Integration"
+extension. Drag a DTC and its line follows. Pass --outdir or --out to override.
 
 Templates live in "template/": the blank A3 sheet + symbol library and the
 surveyed-route sample.
@@ -45,6 +45,7 @@ import openpyxl
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MASTER_DEFAULT = os.path.join(SCRIPT_DIR, "DTC DETAILS U4.xlsx")
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
+OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
 TEMPLATE_DRAWIO = os.path.join(TEMPLATE_DIR, "MESCOM_SLD_TEMPLATE.drawio")
 SHEET_ALL = "ALL"
 SHEET_HT = "HT"
@@ -116,6 +117,15 @@ ST_NOTE = "text;html=1;align=left;verticalAlign=top;fontSize=9;whiteSpace=wrap;"
 # ----------------------------------------------------------------------------
 def _txt(v) -> str:
     return "" if v is None else str(v).strip()
+
+
+def _display(path: str) -> str:
+    """Short path for console output: relative when inside the tool folder."""
+    try:
+        rel = os.path.relpath(os.path.abspath(path), SCRIPT_DIR)
+    except ValueError:
+        return path
+    return path if rel.startswith("..") else rel
 
 
 def _num(v):
@@ -948,7 +958,7 @@ def preview(xml: str, out_png: str, page_idx: int = 0):
             page.insert_text((r.x0 + (r.width - tw) / 2, r.y0 + size * (1.35 + 1.25 * i)),
                              ln, fontsize=size, color=(0.1, 0.1, 0.1))
     page.get_pixmap(dpi=120).save(out_png)
-    print(f"  preview     : {out_png}")
+    print(f"  preview     : {_display(out_png)}")
 
 
 # ----------------------------------------------------------------------------
@@ -958,7 +968,8 @@ def main():
     ap.add_argument("--feeder", help='feeder name as in the master, e.g. "Mandli F13"')
     ap.add_argument("--name", help="label printed on the sheet (default: feeder)")
     ap.add_argument("--title", help="override the title line")
-    ap.add_argument("--out", help="output .drawio path")
+    ap.add_argument("--out", help="output .drawio path (overrides --outdir)")
+    ap.add_argument("--outdir", help="folder for generated .drawio files (default: outputs/<today>)")
     ap.add_argument("--preview", action="store_true", help="also write a PNG preview")
     ap.add_argument("--geo", action="store_true", help="place DTCs at their GPS positions")
     ap.add_argument("--muss", help='substation coordinates "lat,lon" for the geo layout')
@@ -976,7 +987,7 @@ def main():
         xml = build_template().to_xml()
         with open(out, "w", encoding="utf-8") as fh:
             fh.write(xml)
-        print(f"  template    : {out}")
+        print(f"  template    : {_display(out)}")
         if args.preview:
             preview(xml, os.path.splitext(out)[0] + "_library.png", page_idx=1)
         return
@@ -1041,7 +1052,12 @@ def main():
                                    title_text=args.title)
 
     xml = wb.to_xml()
-    out = args.out or f"{label}{' - GEO' if args.geo else ''} SLD.drawio"
+    if args.out:
+        out = args.out
+    else:
+        outdir = args.outdir or os.path.join(OUTPUT_ROOT, date.today().strftime("%Y-%m-%d"))
+        out = os.path.join(outdir, f"{label}{' - GEO' if args.geo else ''} SLD.drawio")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         fh.write(xml)
 
@@ -1051,7 +1067,7 @@ def main():
               f"{info['unpositioned']} unpositioned  |  1 m = {info['scale']:.2f} px")
     else:
         print(f"  layout      : schematic  |  {info['per_row']} per lateral x {info['rows']} laterals")
-    print(f"  written     : {out}")
+    print(f"  written     : {_display(out)}")
     if args.preview:
         preview(xml, os.path.splitext(out)[0] + ".png")
 
