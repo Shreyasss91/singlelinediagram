@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Excel / Office temporary and lock files
+~$*
+*.tmp
+*.temp
+
+# Generated diagrams and previews.
+# Everything in outputs/ is rebuilt by sld_generator.py; remove this line if you
+# want to version the drawings themselves.
+outputs/
+template/*_library.png
+
+# draw.io backups
+*.bkp
+*.dtmp
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
