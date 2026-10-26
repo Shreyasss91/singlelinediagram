@@ -6,7 +6,37 @@ generator up to its current state.
 
 ---
 
-## 2026-10-26 · Newest — Empty RMU ways: `CONNECTED` column, empty-by-default register
+## 2026-10-26 · Newest — `CLAUDE.md`: a working guide to the repo
+
+Added a short orientation file for AI-assisted work in this folder. The manual explains the tool to
+a person drawing sheets; this explains the repository to whoever — or whatever — is about to change
+it, in the order the questions actually come up: what the thing is, how to run it, where the code
+lives, what must not break, how to check a change, and what is deceptive about this environment.
+
+### Added
+- **`CLAUDE.md`** — commands (including which output folder a run writes), a map of
+  `sld_generator.py` top to bottom, the invariants worth losing sleep over (one parent per node;
+  five ways with any outgoing one empty; master column letters; workbook sheet ranges), the
+  conventions the code follows, and the gotchas that cost time: the Excel lock, `--topology-template`
+  refusing to overwrite field edits, `build_geo()` not reading the topology workbook yet, the
+  `LF → CRLF` warnings, and the fact that this is a **public** repository holding real asset data.
+- **A verification recipe** — since there is no test suite: `--list`, a geo run with `--preview` into
+  a scratch folder, a schematic run, an XML parse, and, for workbook changes, an openpyxl read-back of
+  headers, ranges, validation and conditional formatting. Plus the four topology checks (duplicate id,
+  dangling parent, cycle, five ways per RMU with `CONNECTED` agreeing with `NODES!WAY`).
+- **The doc/commit contract** — which document to update for which kind of change, and the seven
+  section commit format (`WHAT / WHY / HOW / NEED / USAGE / BENEFITS / REQUIREMENTS`), with the
+  reminder that PowerShell has no heredoc so the message goes through `git commit -F`.
+
+### Notes
+- Documentation only; no change to the generator, the templates or the drawings.
+- The file states the current state of play and the next step (read the topology workbook in
+  `build_geo()`), so it will need a line or two there as that work lands — the same discipline
+  `SESSION_HANDOFF.md` already asks for.
+
+---
+
+## 2026-10-26 — Empty RMU ways: `CONNECTED` column, empty-by-default register
 
 An RMU has five terminals but not five cables. `ODin` is always fed; the four outgoing ways —
 `ODout` included — may be empty, and most units in service run with two or three cables. The workbook

@@ -16,6 +16,7 @@ SLD TOOL\
 ├── sld_generator.py               the tool
 ├── DTC DETAILS U4.xlsx            the DTC master it reads
 ├── README.md                      this manual
+├── CLAUDE.md                      working guide for changing the tool
 ├── CHANGELOG.md                   change history
 ├── TOPOLOGY_DATA_REQUIREMENTS.md  what to record to get a real trunk and spurs
 ├── template\
@@ -38,6 +39,7 @@ SLD TOOL\
 | `template/route_template.csv` | Format sample for surveyed pole coordinates (`--route`). Values are examples only; the optional `WAY` column shows a run entering and leaving an RMU. |
 | `outputs/<date>/` | Every generated sheet goes here, named after the feeder and layout. Today's runs do not overwrite yesterday's. |
 | `TOPOLOGY_DATA_REQUIREMENTS.md` | The data-collection guide: what is missing, the field specification, how spurs are derived, where to get each item. |
+| `CLAUDE.md` | Notes for whoever changes the tool: commands, code map, invariants, how to verify a change, and the traps in this environment. |
 
 `outputs/` is git-ignored: every sheet in it is generated and can be rebuilt from the master.
 
