@@ -21,6 +21,9 @@
 >
 > **Update 5:** `README.md`, `CHANGELOG.md` and this file now live in `docs\`. Paths in sections
 > 2–4 below are the earlier root-level ones; the content is history, not current layout.
+>
+> **Update 6:** `TOPOLOGY_DATA_REQUIREMENTS.md` has joined them in `docs\`, so all four documents
+> now sit together. The workbook READ ME points at the new path.
 
 ---
 

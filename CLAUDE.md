@@ -38,8 +38,8 @@ field_data/TOPOLOGY.xlsx         your filled-in connection workbook (not read ye
 docs/README.md                   the user manual
 docs/CHANGELOG.md                newest entry on top, dated
 docs/SESSION_HANDOFF.md          state of play, updated at the end of a work session
+docs/TOPOLOGY_DATA_REQUIREMENTS.md   field specification for the connection data
 CLAUDE.md                        this file
-TOPOLOGY_DATA_REQUIREMENTS.md    field specification for the connection data
 template/MESCOM_SLD_TEMPLATE.drawio   blank A3 sheet + symbol library (2 pages)
 template/TOPOLOGY TEMPLATE.xlsx       the blank collection workbook - never fill this one
 template/route_template.csv           format sample for --route
@@ -155,8 +155,8 @@ A change is not finished until the documents agree with the code. Depending on t
 | Change | Also update |
 |---|---|
 | CLI option, layout, output name | `docs/README.md` (options table, relevant section) |
-| Master column / sheet | `docs/README.md` §3, `TOPOLOGY_DATA_REQUIREMENTS.md`, workbook READ ME |
-| Topology schema, validation | `TOPOLOGY_DATA_REQUIREMENTS.md` (§ field spec, § validation rules, worked example), `docs/README.md` §8, regenerated `template/TOPOLOGY TEMPLATE.xlsx` |
+| Master column / sheet | `docs/README.md` §3, `docs/TOPOLOGY_DATA_REQUIREMENTS.md`, workbook READ ME |
+| Topology schema, validation | `docs/TOPOLOGY_DATA_REQUIREMENTS.md` (§ field spec, § validation rules, worked example), `docs/README.md` §8, regenerated `template/TOPOLOGY TEMPLATE.xlsx` |
 | Any user-visible change | `docs/CHANGELOG.md` — new entry at the top, `## <date> · Newest — <title>`, plain-language why first |
 | End of session | `docs/SESSION_HANDOFF.md` update |
 

@@ -1198,7 +1198,7 @@ def build_topology_template(master_path: str, out_path: str) -> str:
          "neighbours, which is good enough for the topology.")
     para("When NODES is complete, the generator can be extended to draw the real trunk and spurs "
          "instead of inferring them. This workbook is the collection format; the reader is the next "
-         "code step. See TOPOLOGY_DATA_REQUIREMENTS.md for the reasoning and the optional extras.")
+         "code step. See docs/TOPOLOGY_DATA_REQUIREMENTS.md for the reasoning and the optional extras.")
     r += 1
     para("7.  REBUILDING THIS TEMPLATE", bold=True, size=11, color="1F4E79")
     para('python sld_generator.py --topology-template          # refuses to overwrite a filled file\n'

@@ -6,7 +6,41 @@ generator up to its current state.
 
 ---
 
-## 2026-10-26 · Newest — Documentation moves into `docs\`
+## 2026-10-26 · Newest — `TOPOLOGY_DATA_REQUIREMENTS.md` joins `docs\`
+
+The last document at the root moved into `docs\`. The manual, the history, the handoff and the field
+specification now sit in one place.
+
+### Changed
+- **`docs/TOPOLOGY_DATA_REQUIREMENTS.md`** — moved with `git mv`. Its header now says that paths are
+  written from the repository root, and it names the master as `field_data/DTC DETAILS U4.xlsx`.
+- **`docs/README.md`** — folder tree and path table list the document under `docs\`; the two inline
+  references (§1 template row, §8 “full field-by-field specification”) carry the new prefix.
+- **`CLAUDE.md`** — layout tree and the doc/commit table point at `docs/TOPOLOGY_DATA_REQUIREMENTS.md`.
+- **`sld_generator.py`** — one string in the workbook READ ME now says
+  `docs/TOPOLOGY_DATA_REQUIREMENTS.md`. No behaviour change.
+- **`template/TOPOLOGY TEMPLATE.xlsx`** — regenerated so the shipped workbook carries that path.
+- **`field_data/TOPOLOGY.xlsx`** — refreshed from the regenerated template. This was done only
+  because the two files were byte-identical beforehand (same SHA-256), so it held no edits; a working
+  copy with changes would have been left alone.
+- **`docs/SESSION_HANDOFF.md`** — Update 6 records the move.
+
+### Why
+The previous entry left this document at the root on the argument that a field team is pointed at it
+directly. That still holds, but pointing them at `docs\` costs nothing, and the alternative — four
+documents, three in one folder and one on its own — recreates the ambiguity the move was meant to
+remove.
+
+### Notes
+- The workbook binary is part of this commit for a single sentence in its READ ME; the sheets, rows
+  and validations are unchanged.
+- No drawing or template layout change, and nothing in `outputs\` needed regenerating.
+- The root now holds code, `CLAUDE.md`, `field_data\`, `docs\`, `template\` and `outputs\` — one
+  folder per role.
+
+---
+
+## 2026-10-26 — Documentation moves into `docs\`
 
 The three running documents moved out of the root: `README.md`, `CHANGELOG.md` and
 `SESSION_HANDOFF.md` are now in `docs\`. Code and data paths are untouched.

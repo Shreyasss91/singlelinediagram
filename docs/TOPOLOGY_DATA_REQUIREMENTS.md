@@ -2,11 +2,13 @@
 
 **MESCOM SLD tool** · 26 October 2026 · companion to `docs/README.md` and `template/TOPOLOGY TEMPLATE.xlsx`
 
+Paths here are written from the repository root.
+
 ---
 
 ## 1. Why this document exists
 
-The tool can already draw a feeder from the GPS coordinates in `DTC DETAILS U4.xlsx`. Every DTC,
+The tool can already draw a feeder from the GPS coordinates in `field_data/DTC DETAILS U4.xlsx`. Every DTC,
 RMU and MUSS appears at its surveyed position, north up, at a uniform scale.
 
 What the workbook does **not** contain is **connectivity**: which node feeds which. Two DTCs 40 m

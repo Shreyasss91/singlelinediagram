@@ -20,9 +20,9 @@ SLD TOOL\
 ├── docs\
 │   ├── README.md                  this manual
 │   ├── CHANGELOG.md               change history
-│   └── SESSION_HANDOFF.md         state of play, updated at the end of a session
+│   ├── SESSION_HANDOFF.md         state of play, updated at the end of a session
+│   └── TOPOLOGY_DATA_REQUIREMENTS.md  what to record to get a real trunk and spurs
 ├── CLAUDE.md                      working guide for changing the tool
-├── TOPOLOGY_DATA_REQUIREMENTS.md  what to record to get a real trunk and spurs
 ├── template\
 │   ├── MESCOM_SLD_TEMPLATE.drawio blank A3 sheet + symbol library
 │   ├── TOPOLOGY TEMPLATE.xlsx     blank connection workbook, copied from here
@@ -45,11 +45,11 @@ Commands are run from the root, too.
 | `docs/README.md` | This manual. |
 | `docs/CHANGELOG.md` | Every change, newest first. |
 | `docs/SESSION_HANDOFF.md` | Where the work stands, and what is next. |
+| `docs/TOPOLOGY_DATA_REQUIREMENTS.md` | The data-collection guide: what is missing, the field specification, how spurs are derived, where to get each item. |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | Two-tab template: a blank A3 sheet and a symbol library (MUSS, DTC, HT, GOS, RMU, junction, bus). |
-| `template/TOPOLOGY TEMPLATE.xlsx` | One row per node with its parent. Pre-filled from the master with a first-draft connection; see §8 and `TOPOLOGY_DATA_REQUIREMENTS.md`. This is the blank, not your working copy. |
+| `template/TOPOLOGY TEMPLATE.xlsx` | One row per node with its parent. Pre-filled from the master with a first-draft connection; see §8 and `docs/TOPOLOGY_DATA_REQUIREMENTS.md`. This is the blank, not your working copy. |
 | `template/route_template.csv` | Format sample for surveyed pole coordinates (`--route`). Values are examples only; the optional `WAY` column shows a run entering and leaving an RMU. |
 | `outputs/<date>/` | Every generated sheet goes here, named after the feeder and layout. Today's runs do not overwrite yesterday's. |
-| `TOPOLOGY_DATA_REQUIREMENTS.md` | The data-collection guide: what is missing, the field specification, how spurs are derived, where to get each item. |
 | `CLAUDE.md` | Notes for whoever changes the tool: commands, code map, invariants, how to verify a change, and the traps in this environment. |
 
 `field_data/` holds the two workbooks that are data rather than templates: the master it reads and
@@ -442,7 +442,7 @@ are optional — parent each DTC to the upstream DTC if that is what the drawing
 better branch points and can be added later without redoing the DTCs.
 
 The full field-by-field specification, the collection order, the sources for each item and a
-worked example are in **`TOPOLOGY_DATA_REQUIREMENTS.md`**.
+worked example are in **`docs/TOPOLOGY_DATA_REQUIREMENTS.md`**.
 
 ---
 
