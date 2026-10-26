@@ -83,11 +83,11 @@ Every RMU in this network is a **five-way switchgear**: one way in and four ways
 
 | Way | Direction | Use |
 |---|---|---|
-| `ODin` | in | the incoming cable — the RMU is fed through this way |
-| `ODout` | out | the through way to the next unit or the next pole |
-| `VL1` | out | outgoing way 1 |
-| `VL2` | out | outgoing way 2 |
-| `VL3` | out | outgoing way 3 |
+| `ODin` | in | the incoming cable — the RMU is fed through this way, always cabled |
+| `ODout` | out | one of the four outgoing ways; often the continuing run, but it may be empty |
+| `VL1` | out | outgoing way 1 — may be empty |
+| `VL2` | out | outgoing way 2 — may be empty |
+| `VL3` | out | outgoing way 3 — may be empty |
 
 So an RMU is **not** a single two-terminal device in a chain: it is one node with five terminals, and
 anything downstream of it leaves by a named way. Two things are recorded, in two places:
@@ -101,24 +101,38 @@ That keeps exactly one parent per node — the rule the whole format rests on �
 terminal the cable lands on.
 
 ```
-                 ┌── ODout ── P-003 ── ...
+                  ┌── ODout ── (empty)
 P-002 ── ODin ──[RMU]── VL1 ── SCD-08
-                 ├── VL2 ── (spare)
-                 └── VL3 ── (spare)
+                  ├── VL2 ── P-003 ── ...
+                  └── VL3 ── (empty)
 ```
 
+#### A five-way unit is not five connections
+
+The five ways are **terminals, not cables**. A unit can sit in service with only two of them used:
+`ODin` in and a single outgoing way out. The rest are simply empty — no cable, no child row, nothing
+downstream, and nothing missing from the model.
+
+* Only `ODin` is always cabled. Every other way, **`ODout` included, may be empty**.
+* `ODout` is often the continuing run to the next unit or pole, but there is no rule that says so.
+  Plenty of units continue from `VL1`, `VL2` or `VL3`; on some, `ODout` sits empty for years.
+* An empty way is recorded by its absence: no child row names it in `NODES!WAY`, and it carries
+  `CONNECTED = N` on the `RMU WAYS` sheet (§5).
+* A way with no cable has no switch state worth recording, so `NORMALLY` stays blank on it. `NC`/`NO`
+  is only meaningful where something is connected.
+
 `NODES!WAY` is the connection; the `RMU WAYS` sheet (§5) is the register of the five ways themselves —
-direction, normal state, label. A way can carry a child without appearing on that sheet and vice
-versa, but the two are meant to agree, and the validator (§13) checks it.
+direction, whether a cable is landed, normal state, label. A way can carry a child without appearing
+on that sheet and vice versa, but the two are meant to agree, and the validator (§13) checks it.
 
-An RMU in a ring has two ways in service: `ODin` in, `ODout` out. Recorded this way, the ring reads as
-a chain through the RMU, which is how a radial SLD is normally drawn. If the ring is **closed** (both
-ends energised), a tree cannot represent the parallel path: record the tree through the RMU and note
-the tie in `REMARKS`. Closed-ring operation is out of scope until the drawing needs it — tell me if it
-does.
+When an RMU is used as a through unit in a ring, two ways are in service: `ODin` in and one outgoing
+way out (commonly `ODout`, but any of the four). Recorded this way, the ring reads as a chain through
+the RMU, which is how a radial SLD is normally drawn. If the ring is **closed** (both ends energised),
+a tree cannot represent the parallel path: record the tree through the RMU and note the tie in
+`REMARKS`. Closed-ring operation is out of scope until the drawing needs it — tell me if it does.
 
-Ways that are **not** in use still exist physically. They stay blank in `NODES` and are listed as
-spare (and marked `NO` if they sit open) on `RMU WAYS`.
+Ways that are **not** in use still exist physically, so they keep a row. They are marked
+`CONNECTED = N` and listed as spare; mark one `NO` only if it is a real open point with a cable on it.
 
 ---
 
@@ -136,7 +150,7 @@ One row per MUSS, RMU, GOS, pole, DTC and HT service. Columns A–O:
 | F | `LONG` | if known | Decimal degrees. Blank is allowed for poles. |
 | G | `PARENT_ID` | **all except MUSS** | The node immediately upstream. Must exist in column A. |
 | H | `SPUR_ID` | recommended | `T` = main run from the MUSS. `S1`, `S2`, … = laterals. Constant along a lateral. |
-| I | `WAY` | child of an RMU | Which RMU way this node leaves by: `ODout`, `VL1`, `VL2`, `VL3`. Blank on every other row — including the RMU row itself, whose incoming way is `ODin` and is expressed by its `PARENT_ID`. See §3.4. |
+| I | `WAY` | child of an RMU | Which RMU way this node leaves by: `ODout`, `VL1`, `VL2`, `VL3`. Blank on every other row — including the RMU row itself, whose incoming way is `ODin` and is expressed by its `PARENT_ID`. A way with no child is simply empty; see §3.4. |
 | J | `KVA` | DTC/HT | Rating or contracted demand. Already filled from the master. |
 | K | `PHASE` | optional | `3PH` or `1PH`. Not in the current master — leave blank if unknown. |
 | L | `NORMALLY` | switches | `NC` (normally closed) or `NO` (normally open). Applies to `GOS` and `RMU`. |
@@ -169,17 +183,29 @@ every RMU in the master.
 | `RMU_ID` | the `NODE_ID` of the RMU row in `NODES` |
 | `WAY` | `ODin`, `ODout`, `VL1`, `VL2`, `VL3` |
 | `DIRECTION` | `IN` for `ODin`, `OUT` for the other four |
-| `NORMALLY` | `NC` (closed) or `NO` (open). All ways default to `NC` — change only a way that really sits open |
+| `CONNECTED` | `Y` if a cable is landed on the way, `N` if the way is empty. `ODin` is always `Y`; the other four start `N` |
+| `NORMALLY` | `NC` (closed) or `NO` (open) where a cable exists; blank on an empty way, which has no state worth recording |
 | `LABEL` | **fill this in if the unit is labelled** — e.g. “Kote Road out”, “spare” |
 | `NOTES` | cable size, fuse rating, which feeder it ties to |
+
+`CONNECTED` is the column that makes “not all ways are used” explicit. The default is honest rather
+than optimistic: one cable in, four ways empty, because nothing in the master records a way yet. Set a
+way to `Y` only when a cable is really landed on it — and then a child row in `NODES` should name that
+way in `WAY`. The two are cross-checked by the validator (§13):
+
+```
+CONNECTED = Y  <->  exactly one child row in NODES carries WAY = that way
+CONNECTED = N  <->  no child row carries it
+```
 
 Why a separate sheet instead of five columns on the RMU row:
 
 * the **connections** stay in `NODES`, one parent cell per child — they cannot disagree with
   themselves, and a way can be described without being wired to anything yet;
-* a way carries attributes that belong to the switchgear, not to the node downstream of it (normal
-  state, label, fuse);
-* a spare way has no child at all, yet still exists — it has nowhere to live in `NODES`.
+* a way carries attributes that belong to the switchgear, not to the node downstream of it (whether a
+  cable exists, normal state, label, fuse);
+* an **empty way** has no child at all, yet still exists — it has nowhere to live in `NODES`, and a
+  register that simply omitted it would be indistinguishable from a way nobody has checked yet.
 
 The sheet is a description, not a second copy of the tree: a child named on this sheet is still
 parented only once, in `NODES`.
@@ -259,9 +285,10 @@ A spur that itself branches keeps the same `SPUR_ID` in the template. If you wan
 The 14 are: 7 DTCs without usable GPS (6 missing, plus `SCD-68` rejected as an outlier), 5 HT services
 (no coordinates in the master), and the 2 RMUs (their way position is not recorded anywhere).
 
-The 10 RMU-way rows are the five ways of each of the two units, all `NC`, waiting for labels and for a
-way to be marked open where it really is. No `WAY` value is pre-filled in `NODES`: neither RMU has a
-recorded child yet, and the minimum-spanning-tree guess never puts a DTC under an RMU.
+The 10 RMU-way rows are the five ways of each of the two units: `ODin` cabled, the four outgoing
+ways marked empty (`CONNECTED = N`, no `NORMALLY`), because no cable is recorded yet. No `WAY` value is
+pre-filled in `NODES`: neither RMU has a recorded child, and the minimum-spanning-tree guess never puts
+a DTC under an RMU.
 
 Inferred per feeder:
 
@@ -333,7 +360,7 @@ When the tool reads a completed topology workbook:
 * spur labels (`S1 Kote Road`, …) and per-spur DTC count / kVA in the summary table
 * GOS drawn inline on the correct span, open or closed as recorded
 * RMU drawn as a five-way unit, with each child cable arriving on its recorded way, so the ring reads
-  correctly and a spare way is visibly spare
+  correctly and an empty way is visibly empty — not mistaken for a missing record
 * `UNPOSITIONED` box still holds anything without coordinates — nothing disappears
 * downstream count and kVA per section available for the feasibility reports
 * which DTCs each RMU way isolates, straight from `NODES!WAY` + `RMU WAYS`
@@ -365,6 +392,13 @@ Before drawing, the topology reader should reject or flag:
 14. two children of one RMU claiming the same way (physically impossible — one cable per terminal)
 15. a `WAY = NO` on `RMU WAYS` feeding a child marked `NC`, i.e. a node recorded downstream of an open
     point
+16. `CONNECTED = Y` on a way with no child naming it, or `CONNECTED = N` on a way that a child does
+    name — the register and the connections must agree
+17. `CONNECTED = N` with `NORMALLY` filled in, or `CONNECTED = Y` with `NORMALLY` blank: an empty way
+    has no switch state, a cabled one does
+
+An empty way is **not** an error. Only `ODin` must be `CONNECTED = Y`; the other four are commonly
+empty, `ODout` included.
 
 Errors stop the run with the row number; warnings are printed and the drawing continues.
 
@@ -384,22 +418,23 @@ The `EXAMPLE` sheet is a small complete feeder. The essential rows:
 | `P-010` | POLE | `P-002` | `S1` | | first pole of the lateral |
 | `SCD-07` | DTC | `P-010` | `S1` | | on the lateral |
 | `RMU-DEMO` | RMU | `P-002` | `T` | | fed from `P-002` — that link is way `ODin` |
-| `P-003` | POLE | `RMU-DEMO` | `T` | `ODout` | leaves the RMU by way `ODout` |
+| `P-003` | POLE | `RMU-DEMO` | `T` | `VL2` | the run out uses `VL2`, not `ODout` |
 | `SCD-08` | DTC | `RMU-DEMO` | `T` | `VL1` | leaves the RMU by way `VL1` |
 
-And the matching `RMU WAYS` rows for that unit:
+And the matching `RMU WAYS` rows for that unit — five terminals, three cables:
 
-| RMU_ID | WAY | DIRECTION | NORMALLY | Reading |
-|---|---|---|---|---|
-| `RMU-DEMO` | `ODin` | IN | `NC` | fed from `P-002`; no child names this way |
-| `RMU-DEMO` | `ODout` | OUT | `NC` | carries `P-003` |
-| `RMU-DEMO` | `VL1` | OUT | `NC` | carries `SCD-08` |
-| `RMU-DEMO` | `VL2` | OUT | `NC` | spare |
-| `RMU-DEMO` | `VL3` | OUT | `NO` | spare, normally open |
+| RMU_ID | WAY | DIRECTION | CONNECTED | NORMALLY | Reading |
+|---|---|---|---|---|---|
+| `RMU-DEMO` | `ODin` | IN | Y | `NC` | fed from `P-002`; no child names this way |
+| `RMU-DEMO` | `ODout` | OUT | N | *(blank)* | empty — no cable on this way |
+| `RMU-DEMO` | `VL1` | OUT | Y | `NC` | carries `SCD-08` |
+| `RMU-DEMO` | `VL2` | OUT | Y | `NC` | carries `P-003` |
+| `RMU-DEMO` | `VL3` | OUT | N | *(blank)* | empty spare way |
 
 `P-002` has two children (`P-010` and `RMU-DEMO`) — that single fact is what makes `S1` a lateral.
 No separate “spur” table is needed to express it. The RMU's five rows describe terminals, not
-connections: `P-003` appears once, parented to `RMU-DEMO` with `WAY = ODout`.
+connections: `P-003` appears once, parented to `RMU-DEMO` with `WAY = VL2`. Two of the five rows carry
+no cable at all, and that is a valid, complete record — the unit is in service with three cables.
 
 ---
 
@@ -416,8 +451,8 @@ connections: `P-003` appears once, parented to `RMU-DEMO` with `WAY = ODout`.
 5. **Is `PHASE` recorded anywhere** (1φ/3φ per DTC)? It is not in the current master.
 6. **Which way does each cable use** on the two RMUs — `ODout`, `VL1`, `VL2` or `VL3`? Nothing in the
    master records it; `NODES!WAY` is where it goes once someone reads it off the unit.
-7. **Are any RMU ways normally open** (a spare way left open, or an open ring point)? Everything is
-   pre-filled `NC`.
+7. **Which ways are empty** on each unit, and are any cabled ways normally open? The template assumes
+   one cable in and four empty ways, because nothing is recorded yet; correct it from the unit door.
 
 ---
 
@@ -432,7 +467,8 @@ connections: `P-003` appears once, parented to `RMU-DEMO` with `WAY = ODout`.
 [ ] Add pole rows where the branch point matters
 [ ] Add BENDS only where a line must follow a road
 [ ] Fill SPURS.LABEL with the names used on the hand drawing
-[ ] Put a WAY on every child of an RMU, and label the ways on RMU WAYS
+[ ] Put a WAY on every child of an RMU, and set RMU WAYS: CONNECTED = Y only where a cable is landed
+[ ] Leave NORMALLY blank on the empty ways - most units use two or three of the five
 [ ] Check the §13 rules, then send the file back
 ```
 

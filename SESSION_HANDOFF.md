@@ -10,8 +10,9 @@
 >
 > **Update 3:** an RMU is now modelled as a **five-way unit** — `ODin`, `ODout`, `VL1`, `VL2`, `VL3`.
 > `NODES` gained a `WAY` column (which terminal a child leaves by) and the workbook gained an
-> `RMU WAYS` sheet (the terminals themselves). RMU symbols are labelled `5-way`. Sections 2–5 below
-> predate that change; see the newest CHANGELOG entry.
+> `RMU WAYS` sheet (the terminals themselves, with `CONNECTED` to mark empty ways). Only `ODin` is
+> always cabled; any outgoing way — `ODout` included — may be empty. RMU symbols are labelled
+> `5-way`. Sections 2–5 below predate that change; see the two newest CHANGELOG entries.
 
 ---
 

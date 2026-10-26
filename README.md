@@ -349,7 +349,7 @@ it leaves by in **`WAY`**. The link into the unit is `ODin`, so it needs nothing
 |---|---|
 | `NODES` | one row per DTC, HT, MUSS, RMU — 128 rows today. `PARENT_ID`, `SPUR_ID` and `WAY` are the columns to correct. |
 | `SPURS` | the laterals found in `NODES`, with DTC count and connected kVA. Add a `LABEL` for each one. |
-| `RMU WAYS` | the five ways of every RMU — `ODin`, `ODout`, `VL1`, `VL2`, `VL3` — with direction, normal state and label. 10 rows today, all pre-filled `NC`. |
+| `RMU WAYS` | the five ways of every RMU — `ODin`, `ODout`, `VL1`, `VL2`, `VL3` — with direction, `CONNECTED`, normal state and label. 10 rows today: `ODin` cabled, the four outgoing ways empty. |
 | `BENDS` | optional shape points, for a span that must follow a road instead of a straight line. |
 | `EXAMPLE` | a small complete feeder showing exactly how the rows read, including a five-way RMU. |
 
@@ -374,9 +374,9 @@ An RMU here is **one node with five terminals**, not a link in a chain:
 
 | Way | Direction | Meaning |
 |---|---|---|
-| `ODin` | in | the incoming cable — the RMU is fed through this way |
-| `ODout` | out | the through way to the next unit or pole |
-| `VL1`, `VL2`, `VL3` | out | the three outgoing ways |
+| `ODin` | in | the incoming cable — the RMU is fed through this way, always cabled |
+| `ODout` | out | one of the four outgoing ways; often the continuing run, but it may be empty |
+| `VL1`, `VL2`, `VL3` | out | the other outgoing ways — any of them may be empty |
 
 Two places, two jobs:
 
@@ -384,15 +384,20 @@ Two places, two jobs:
   must name `ODout`, `VL1`, `VL2` or `VL3`. The link **into** the RMU is way `ODin`, so it needs no
   `WAY` value — the RMU's own `PARENT_ID` already says where it is fed from. Every other row leaves
   `WAY` blank.
-* **`RMU WAYS`** answers *what is on the switchgear*. Five rows per unit: direction, normal state
-  (`NC`/`NO`) and a label per way, so spare ways and open ring points have somewhere to live.
+* **`RMU WAYS`** answers *what is on the switchgear*. Five rows per unit: direction, whether a cable
+  is landed (`CONNECTED`), the normal state (`NC`/`NO`) and a label per way.
 
 ```
-                 ┌── ODout ── P-003 ── ...
+                  ┌── ODout ── (empty)
 P-002 ── ODin ──[RMU]── VL1 ── SCD-08
-                 ├── VL2 ── (spare)
-                 └── VL3 ── (spare)
+                  ├── VL2 ── P-003 ── ...
+                  └── VL3 ── (empty)
 ```
+
+**A five-way unit is not five connections.** Only `ODin` is always cabled; the four outgoing ways —
+`ODout` included — are commonly empty, and a unit sitting in service with two cables is perfectly
+normal. An empty way has no child row in `NODES` and `CONNECTED = N` on `RMU WAYS`, with `NORMALLY`
+left blank because there is no switch state to record.
 
 Keeping the connections in `NODES` alone means a child is still parented exactly once, so the tree
 cannot disagree with itself. `RMU WAYS` is a register, not a second copy of the tree.
@@ -458,7 +463,8 @@ Update column `I` and regenerate. The summary table and the symbol both follow.
 Add a row to sheet `NON DTC NODES` — the name must contain `RMU` or `MUSS` — then regenerate. An RMU
 attaches itself to whichever feeder's DTCs are nearest; a MUSS is matched to the station text in
 column `J` of sheet `ALL`. No code change, no configuration. Then rebuild the topology template (or
-add the five `RMU WAYS` rows by hand) and put a `WAY` on every child of the unit.
+add the five `RMU WAYS` rows by hand), put a `WAY` on every child of the unit, and set `CONNECTED = Y`
+only on the ways that really have a cable.
 
 **You need a sheet for a feeder that has never been drawn**
 Add its DTCs to `ALL` with the feeder name, run `--list` to confirm it appears, then generate.
@@ -555,5 +561,5 @@ At the time of writing:
 | **Trunk** | The main run of the feeder from the MUSS; laterals branch off it. |
 | **Spur / lateral** | A branch leaving the trunk. Drawn lighter than the trunk and labelled `S1`, `S2`… |
 | **Parent** | The node immediately upstream of another, in the direction of the MUSS. The `PARENT_ID` column is the whole connection record. |
-| **Way** | One terminal of an RMU. `ODin` is the incoming way, `ODout` and `VL1`–`VL3` are the outgoing ways. `NODES!WAY` names the way a child leaves by. |
+| **Way** | One terminal of an RMU. `ODin` is the incoming way, `ODout` and `VL1`–`VL3` are the outgoing ways. `NODES!WAY` names the way a child leaves by; a way with no child is simply empty. |
 | **`.drawio`** | Plain-XML drawing file for draw.io / diagrams.net. |

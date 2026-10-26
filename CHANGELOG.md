@@ -6,7 +6,53 @@ generator up to its current state.
 
 ---
 
-## 2026-10-26 · Newest — Five-way RMUs: `WAY` column and the `RMU WAYS` sheet
+## 2026-10-26 · Newest — Empty RMU ways: `CONNECTED` column, empty-by-default register
+
+An RMU has five terminals but not five cables. `ODin` is always fed; the four outgoing ways —
+`ODout` included — may be empty, and most units in service run with two or three cables. The workbook
+now says so explicitly instead of leaving an empty way to be inferred from a missing row.
+
+### Added
+- **`RMU WAYS!CONNECTED`** — `Y` when a cable is landed on the way, `N` when it is empty. It is the
+  one column that separates “this way is spare” from “nobody has checked this way yet”.
+- **Dropdown for it** — new `LISTS!YES_NO` (`Y`/`N`), validated on `D2:D11`. `NORMALLY` moved to
+  column E and is now optional, because an empty way has no switch state worth recording.
+- **Two consistency rules in the sheet** — an empty way is greyed out across the row so the cabled
+  ways stand out, and `CONNECTED = Y` with `NORMALLY` blank is amber.
+
+### Changed
+- **The register starts empty, honestly.** `ODin` is generated `CONNECTED = Y`, `NORMALLY = NC`; the
+  four outgoing ways are `N`, with no normal state. Previously all ten rows were `NC`, which claimed
+  more than anyone knows.
+- **`EXAMPLE` now shows an empty `ODout`.** The demo run leaves the RMU by **`VL2`** (`P-003`), `VL1`
+  carries `SCD-08`, and `ODout` plus `VL3` are empty — a unit in service with three cables, which is
+  the normal case this change is about.
+- **`TOPOLOGY_DATA_REQUIREMENTS.md`** — §3.4 gains a “A five-way unit is not five connections”
+  subsection (only `ODin` is always cabled; `ODout` may be empty; blank `NORMALLY`), §5 documents
+  `CONNECTED` with the cross-check against `NODES!WAY`, §9 and §14 match the regenerated workbook,
+  §13 gains rules 16–17 (register vs connections, empty way with a state) and states that an empty
+  way is not an error, §15 and §16 ask for the empty ways per unit.
+- **`README.md`** — the five-way section says only `ODin` is always cabled and that any outgoing way
+  may be empty, the `RMU WAYS` table row mentions `CONNECTED`, and the glossary defines an empty way.
+- **`READ ME` in the workbook** — rule 6 says a unit need not use all five ways; the `RMU WAYS`
+  description explains `CONNECTED`; the colours list gains grey (empty way) and amber (`Y` with no
+  state); the RMU row remark says not all ways need be used.
+
+### Regenerated
+- `template/TOPOLOGY TEMPLATE.xlsx` — `RMU WAYS` is now A–G (7 columns, 10 rows), `CONNECTED` filled
+  `Y` for the two `ODin` rows and `N` for the other eight. `NODES` and the other sheets are unchanged
+  apart from the RMU remark.
+
+### Notes
+- No drawing change: the sheet still labels the unit `5-way` rather than drawing five terminals, and
+  `build_geo()` still does not read the workbook. When the reader is written, `CONNECTED = N` is what
+  will draw a way as empty instead of guessing a cable.
+- The route sample still shows a run entering `ODin` and leaving `ODout`. That is one valid case, not
+  a rule — the example workbook deliberately shows the opposite (`VL2` carrying the run on).
+
+---
+
+## 2026-10-26 — Five-way RMUs: `WAY` column and the `RMU WAYS` sheet
 
 An RMU in this network is a five-way switchgear unit — `ODin`, `ODout`, `VL1`, `VL2`, `VL3` — not a
 two-terminal link in a chain. The topology format now records that: one `WAY` column on `NODES` for
