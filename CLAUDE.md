@@ -35,10 +35,11 @@ test suite.
 sld_generator.py                 the whole tool (~1600 lines, no packages)
 field_data/DTC DETAILS U4.xlsx   the master workbook - the only data source
 field_data/TOPOLOGY.xlsx         your filled-in connection workbook (not read yet)
-README.md                        the user manual
+docs/README.md                   the user manual
+docs/CHANGELOG.md                newest entry on top, dated
+docs/SESSION_HANDOFF.md          state of play, updated at the end of a work session
+CLAUDE.md                        this file
 TOPOLOGY_DATA_REQUIREMENTS.md    field specification for the connection data
-CHANGELOG.md                     newest entry on top, dated
-SESSION_HANDOFF.md               state of play, updated at the end of a work session
 template/MESCOM_SLD_TEMPLATE.drawio   blank A3 sheet + symbol library (2 pages)
 template/TOPOLOGY TEMPLATE.xlsx       the blank collection workbook - never fill this one
 template/route_template.csv           format sample for --route
@@ -72,7 +73,7 @@ outputs/<date>/                  generated .drawio + PNG (ignored)
 
 **Master column mapping.** `read_master()` indexes by letter: `ALL` uses B/C/E/F/I/J/AD/AE, `HT`
 uses E/F/H/L, `NON DTC NODES` uses A-D. If the master moves a column, update the reader *and* the
-tables in README §3 and the requirements doc. MUSS/RMU type is detected from the name containing
+tables in `docs/README.md` §3 and the requirements doc. MUSS/RMU type is detected from the name containing
 `MUSS`/`RMU`; a MUSS is matched to `ALL!J` station text.
 
 **One parent per node.** Every topology row has exactly one `PARENT_ID`, pointing upstream towards
@@ -144,7 +145,7 @@ Verification scripts are throwaway — put them in the temp folder, not the repo
   consumer references; that was the user's explicit decision. Do not add new personal data (consumer
   names, phone numbers, photos) or new workbooks without asking.
 - **Do not "fix" data quirks** unless asked: `SCD-68`'s latitude is `3.926…` instead of `13.926…`,
-  several DTC pairs share coordinates, and a handful have no GPS. They are documented in README §12
+  several DTC pairs share coordinates, and a handful have no GPS. They are documented in `docs/README.md` §12
   as things to watch, not bugs to correct silently.
 
 ## Docs and commits
@@ -153,11 +154,11 @@ A change is not finished until the documents agree with the code. Depending on t
 
 | Change | Also update |
 |---|---|
-| CLI option, layout, output name | `README.md` (options table, relevant section) |
-| Master column / sheet | `README.md` §3, `TOPOLOGY_DATA_REQUIREMENTS.md`, workbook READ ME |
-| Topology schema, validation | `TOPOLOGY_DATA_REQUIREMENTS.md` (§ field spec, § validation rules, worked example), `README.md` §8, regenerated `template/TOPOLOGY TEMPLATE.xlsx` |
-| Any user-visible change | `CHANGELOG.md` — new entry at the top, `## <date> · Newest — <title>`, plain-language why first |
-| End of session | `SESSION_HANDOFF.md` update |
+| CLI option, layout, output name | `docs/README.md` (options table, relevant section) |
+| Master column / sheet | `docs/README.md` §3, `TOPOLOGY_DATA_REQUIREMENTS.md`, workbook READ ME |
+| Topology schema, validation | `TOPOLOGY_DATA_REQUIREMENTS.md` (§ field spec, § validation rules, worked example), `docs/README.md` §8, regenerated `template/TOPOLOGY TEMPLATE.xlsx` |
+| Any user-visible change | `docs/CHANGELOG.md` — new entry at the top, `## <date> · Newest — <title>`, plain-language why first |
+| End of session | `docs/SESSION_HANDOFF.md` update |
 
 Commit messages use seven fixed sections, in this order, filled with substance — no one-line
 bodies:
@@ -179,4 +180,4 @@ step separately. **Do not push unless the user asks.**
 
 Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`), two layouts, `--route`,
 both templates, docs. Next code step: read the topology workbook in `build_geo()` and draw each RMU
-way as cabled or empty. Known limitation list is README §11 — keep it honest as work lands.
+way as cabled or empty. Known limitation list is `docs/README.md` §11 — keep it honest as work lands.

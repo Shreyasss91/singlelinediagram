@@ -9,7 +9,7 @@ mode — position comes from the spreadsheet, so the sheet and the register can 
 
 ---
 
-## 1. What is in this folder
+## 1. What is in this repository
 
 ```
 SLD TOOL\
@@ -17,9 +17,11 @@ SLD TOOL\
 ├── field_data\
 │   ├── DTC DETAILS U4.xlsx        the DTC master it reads
 │   └── TOPOLOGY.xlsx              the connection workbook you fill in
-├── README.md                      this manual
+├── docs\
+│   ├── README.md                  this manual
+│   ├── CHANGELOG.md               change history
+│   └── SESSION_HANDOFF.md         state of play, updated at the end of a session
 ├── CLAUDE.md                      working guide for changing the tool
-├── CHANGELOG.md                   change history
 ├── TOPOLOGY_DATA_REQUIREMENTS.md  what to record to get a real trunk and spurs
 ├── template\
 │   ├── MESCOM_SLD_TEMPLATE.drawio blank A3 sheet + symbol library
@@ -32,11 +34,17 @@ SLD TOOL\
 │       └── … plus a PNG for each sheet when --preview is used
 ```
 
+Paths in this manual are written from the repository root: `docs/…`, `field_data/…`, `template/…`.
+Commands are run from the root, too.
+
 | Path | Purpose |
 |---|---|
 | `sld_generator.py` | The whole tool. Reads the workbook, writes `.drawio` files, optionally renders a PNG preview. |
 | `field_data/DTC DETAILS U4.xlsx` | The DTC master. **The script reads this file from here by default.** |
 | `field_data/TOPOLOGY.xlsx` | Your copy of the connection workbook, and the one you fill in. Kept apart from `template/` so a template rebuild can never overwrite field work. The generator does not read it yet; see §8. |
+| `docs/README.md` | This manual. |
+| `docs/CHANGELOG.md` | Every change, newest first. |
+| `docs/SESSION_HANDOFF.md` | Where the work stands, and what is next. |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | Two-tab template: a blank A3 sheet and a symbol library (MUSS, DTC, HT, GOS, RMU, junction, bus). |
 | `template/TOPOLOGY TEMPLATE.xlsx` | One row per node with its parent. Pre-filled from the master with a first-draft connection; see §8 and `TOPOLOGY_DATA_REQUIREMENTS.md`. This is the blank, not your working copy. |
 | `template/route_template.csv` | Format sample for surveyed pole coordinates (`--route`). Values are examples only; the optional `WAY` column shows a run entering and leaving an RMU. |

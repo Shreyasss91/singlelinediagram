@@ -6,7 +6,40 @@ generator up to its current state.
 
 ---
 
-## 2026-10-26 · Newest — Workbooks move into `field_data\`
+## 2026-10-26 · Newest — Documentation moves into `docs\`
+
+The three running documents moved out of the root: `README.md`, `CHANGELOG.md` and
+`SESSION_HANDOFF.md` are now in `docs\`. Code and data paths are untouched.
+
+### Changed
+- **`docs/README.md`** — the manual. §1 retitled “What is in this repository” and rebuilt to show
+  `docs\`, `field_data\`, `template\` and `outputs\`, with a line stating that paths in the manual are
+  written from the repository root.
+- **`docs/CHANGELOG.md`** — this file, newest entry still on top.
+- **`docs/SESSION_HANDOFF.md`** — the handoff, with Update 5 noting the move.
+- **`CLAUDE.md`** — the layout tree and the doc/commit table now point at `docs/…`. The file itself
+  stays at the root, where an agent looks for it.
+- **`TOPOLOGY_DATA_REQUIREMENTS.md`** — the two references to the manual and the changelog now carry
+  their `docs/` paths.
+
+### Why
+The root had grown to five markdown files with three different jobs: the manual, an append-only
+history, and a working note. Only one of them is the entry point, and it was competing for attention
+with two files a reader almost never opens. Grouping the three keeps the root to things that are
+either code, data, templates, or the agent guide.
+
+### Notes
+- GitHub renders `docs/README.md` on the repository page when there is no root README, so the
+  project still opens on the manual.
+- `TOPOLOGY_DATA_REQUIREMENTS.md` deliberately stayed at the root for now: it is the one document a
+  field team is pointed at directly, and it sits beside `field_data\`. Say the word and it can join
+  the others.
+- No code, template or workbook change. Verified by running `--list` and a geographical generation,
+  which do not read the docs.
+
+---
+
+## 2026-10-26 — Workbooks move into `field_data\`
 
 Data and templates now live apart. The two workbooks moved into a new `field_data\` folder, leaving
 `template\` with nothing but blanks that a rebuild may safely overwrite.

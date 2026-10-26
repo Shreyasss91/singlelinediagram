@@ -1,6 +1,6 @@
 # Topology data requirements — trunk, spurs and connections
 
-**MESCOM SLD tool** · 26 October 2026 · companion to `README.md` and `template/TOPOLOGY TEMPLATE.xlsx`
+**MESCOM SLD tool** · 26 October 2026 · companion to `docs/README.md` and `template/TOPOLOGY TEMPLATE.xlsx`
 
 ---
 
@@ -482,4 +482,4 @@ python sld_generator.py --topology-template --force  # rebuild, discards edits
 ---
 
 *Companion files: `template/TOPOLOGY TEMPLATE.xlsx` (the data), `template/route_template.csv`
-(single-chain `--route` fallback), `README.md` (tool manual), `CHANGELOG.md` (change history).*
+(single-chain `--route` fallback), `docs/README.md` (tool manual), `docs/CHANGELOG.md` (change history).*

@@ -18,6 +18,9 @@
 > tool reads by default) and `TOPOLOGY.xlsx` (the copy to fill in). `template\` now holds only the
 > blanks, so a template rebuild cannot reach the field work. Section 2 below lists the earlier,
 > flat layout.
+>
+> **Update 5:** `README.md`, `CHANGELOG.md` and this file now live in `docs\`. Paths in sections
+> 2–4 below are the earlier root-level ones; the content is history, not current layout.
 
 ---
 
