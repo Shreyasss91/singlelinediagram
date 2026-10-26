@@ -14,14 +14,16 @@ mode — position comes from the spreadsheet, so the sheet and the register can 
 ```
 SLD TOOL\
 ├── sld_generator.py               the tool
-├── DTC DETAILS U4.xlsx            the DTC master it reads
+├── field_data\
+│   ├── DTC DETAILS U4.xlsx        the DTC master it reads
+│   └── TOPOLOGY.xlsx              the connection workbook you fill in
 ├── README.md                      this manual
 ├── CLAUDE.md                      working guide for changing the tool
 ├── CHANGELOG.md                   change history
 ├── TOPOLOGY_DATA_REQUIREMENTS.md  what to record to get a real trunk and spurs
 ├── template\
 │   ├── MESCOM_SLD_TEMPLATE.drawio blank A3 sheet + symbol library
-│   ├── TOPOLOGY TEMPLATE.xlsx     connection data to fill in
+│   ├── TOPOLOGY TEMPLATE.xlsx     blank connection workbook, copied from here
 │   └── route_template.csv         format sample for --route
 ├── outputs\
 │   └── <YYYY-MM-DD>\              generated sheets, one folder per run day
@@ -33,19 +35,23 @@ SLD TOOL\
 | Path | Purpose |
 |---|---|
 | `sld_generator.py` | The whole tool. Reads the workbook, writes `.drawio` files, optionally renders a PNG preview. |
-| `DTC DETAILS U4.xlsx` | The DTC master. **The script reads this file from this folder by default.** |
+| `field_data/DTC DETAILS U4.xlsx` | The DTC master. **The script reads this file from here by default.** |
+| `field_data/TOPOLOGY.xlsx` | Your copy of the connection workbook, and the one you fill in. Kept apart from `template/` so a template rebuild can never overwrite field work. The generator does not read it yet; see §8. |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | Two-tab template: a blank A3 sheet and a symbol library (MUSS, DTC, HT, GOS, RMU, junction, bus). |
-| `template/TOPOLOGY TEMPLATE.xlsx` | One row per node with its parent. Pre-filled from the master with a first-draft connection; see §8 and `TOPOLOGY_DATA_REQUIREMENTS.md`. |
+| `template/TOPOLOGY TEMPLATE.xlsx` | One row per node with its parent. Pre-filled from the master with a first-draft connection; see §8 and `TOPOLOGY_DATA_REQUIREMENTS.md`. This is the blank, not your working copy. |
 | `template/route_template.csv` | Format sample for surveyed pole coordinates (`--route`). Values are examples only; the optional `WAY` column shows a run entering and leaving an RMU. |
 | `outputs/<date>/` | Every generated sheet goes here, named after the feeder and layout. Today's runs do not overwrite yesterday's. |
 | `TOPOLOGY_DATA_REQUIREMENTS.md` | The data-collection guide: what is missing, the field specification, how spurs are derived, where to get each item. |
 | `CLAUDE.md` | Notes for whoever changes the tool: commands, code map, invariants, how to verify a change, and the traps in this environment. |
 
+`field_data/` holds the two workbooks that are data rather than templates: the master it reads and
+the connection workbook you fill in. `template/` holds things that ship and get regenerated.
+
 `outputs/` is git-ignored: every sheet in it is generated and can be rebuilt from the master.
 
-`~$DTC DETAILS U4.xlsx` is an Excel lock file. It appears whenever the workbook is open in Excel
-and can be ignored (see Troubleshooting). The same applies to a `~$` file beside the topology
-template.
+`~$DTC DETAILS U4.xlsx` is an Excel lock file. It appears inside `field_data\` whenever a workbook is
+open in Excel and can be ignored (see Troubleshooting). The same applies to a `~$` file beside the
+topology template or `TOPOLOGY.xlsx`.
 
 ---
 
@@ -66,8 +72,8 @@ Nothing else is needed. The script does not need an internet connection.
 
 ## 3. The master workbook
 
-`sld_generator.py` looks for `DTC DETAILS U4.xlsx` **next to itself**. Point it elsewhere with
-`--master "D:\path\to\file.xlsx"` if you ever move it.
+`sld_generator.py` looks for `field_data\DTC DETAILS U4.xlsx` **beside itself**. Point it elsewhere
+with `--master "D:\path\to\file.xlsx"` if you ever move it.
 
 ### Sheet `ALL` — one row per DTC
 
@@ -359,6 +365,11 @@ it leaves by in **`WAY`**. The link into the unit is `ODin`, so it needs nothing
 to be treated as a first draft. `BASIS = UNKNOWN` (14 rows) means there was no usable coordinate,
 or the node is an HT/RMU whose tap is not recorded. Those need a manual parent.
 
+**Work on a copy in `field_data\TOPOLOGY.xlsx`, not on the template.** Copy
+`template/TOPOLOGY TEMPLATE.xlsx` there once, then fill that file in. `template/` is the blank that
+`--topology-template --force` rewrites, so anything edited in place there is destroyed on the next
+rebuild. Keep the sheet names and column order as they are — the reader will key on them.
+
 The generator does **not read this workbook yet**. It is the agreed collection format, and `--route`
 remains the only way to shape the trunk today; wiring `NODES` into the geographical layout is the
 next code change.
@@ -533,7 +544,7 @@ At the time of writing:
 
 | Symptom | Cause and fix |
 |---|---|
-| `Master workbook not found: …` | The workbook is not next to the script. Put `DTC DETAILS U4.xlsx` here or pass `--master`. |
+| `Master workbook not found: …` | The workbook is not in `field_data\`. Put `DTC DETAILS U4.xlsx` there, or pass `--master` with its path. |
 | `No DTCs for feeder 'X'` | The spelling does not match column F. Run `--list` and copy the name exactly. |
 | Diagram is empty / one giant line | Coordinates are wrong units or swapped. Check `GPS LAT` ≈ 13.9, `GPS LONG` ≈ 75.5. |
 | Changes to the workbook are ignored | The file is open in Excel with unsaved edits; save it, then rerun. |

@@ -13,6 +13,11 @@
 > `RMU WAYS` sheet (the terminals themselves, with `CONNECTED` to mark empty ways). Only `ODin` is
 > always cabled; any outgoing way — `ODout` included — may be empty. RMU symbols are labelled
 > `5-way`. Sections 2–5 below predate that change; see the two newest CHANGELOG entries.
+>
+> **Update 4:** the two workbooks moved into `field_data\` — `DTC DETAILS U4.xlsx` (the master the
+> tool reads by default) and `TOPOLOGY.xlsx` (the copy to fill in). `template\` now holds only the
+> blanks, so a template rebuild cannot reach the field work. Section 2 below lists the earlier,
+> flat layout.
 
 ---
 

@@ -459,7 +459,7 @@ no cable at all, and that is a valid, complete record — the unit is in service
 ## 16. Quick checklist
 
 ```
-[ ] Copy template/TOPOLOGY TEMPLATE.xlsx to a working name (keep the blank one)
+[ ] Copy template/TOPOLOGY TEMPLATE.xlsx to `field_data\TOPOLOGY.xlsx` (keep the blank one)
 [ ] Filter NODES to one feeder
 [ ] Correct PARENT_ID for every DTC   (the one thing that matters)
 [ ] Set SPUR_ID = T / S1 / S2 ...

@@ -6,7 +6,40 @@ generator up to its current state.
 
 ---
 
-## 2026-10-26 · Newest — `CLAUDE.md`: a working guide to the repo
+## 2026-10-26 · Newest — Workbooks move into `field_data\`
+
+Data and templates now live apart. The two workbooks moved into a new `field_data\` folder, leaving
+`template\` with nothing but blanks that a rebuild may safely overwrite.
+
+### Changed
+- **`field_data/DTC DETAILS U4.xlsx`** — the master, moved from the repository root. `MASTER_DEFAULT`
+  now resolves to it, so the default commands are unchanged: `python sld_generator.py --feeder
+  "MRS F1"` still reads the same workbook.
+- **`field_data/TOPOLOGY.xlsx`** — the connection workbook you fill in, moved from the root. It is
+  currently still an unedited copy of the template; the difference is that this one is *meant* to
+  diverge.
+- **`template\` is blanks only** — `TOPOLOGY TEMPLATE.xlsx` stays the distributable that
+  `--topology-template --force` rewrites. Since field work now lives elsewhere, `--force` can no
+  longer destroy it.
+- **`sld_generator.py`** — new `DATA_DIR` constant; `MASTER_DEFAULT` points inside it. The
+  "Master workbook not found" message now names `field_data\` instead of "next to this script".
+- **`README.md`** — the folder tree and path table show `field_data\`; §3 says where the master is
+  read from; §8 says to copy the template to `field_data\TOPOLOGY.xlsx` and fill *that*; the
+  Troubleshooting row points at the new folder.
+- **`TOPOLOGY_DATA_REQUIREMENTS.md`** — the collection checklist now copies the template to
+  `field_data\TOPOLOGY.xlsx`.
+- **`CLAUDE.md`** and **`SESSION_HANDOFF.md`** — layout and the `--force` caveat updated.
+
+### Notes
+- No change to the workbook contents or the drawings; this is a move. Verified with `--list` and a
+  geographical run, which read the master from its new path and wrote the same 62 positioned DTCs.
+- The generated sheets in `outputs\` are unaffected: they name the source workbook, not its path.
+- A lock file (`~$…`) will now appear inside `field_data\` while a workbook is open in Excel, not at
+  the root.
+
+---
+
+## 2026-10-26 — `CLAUDE.md`: a working guide to the repo
 
 Added a short orientation file for AI-assisted work in this folder. The manual explains the tool to
 a person drawing sheets; this explains the repository to whoever — or whatever — is about to change

@@ -33,13 +33,14 @@ test suite.
 
 ```
 sld_generator.py                 the whole tool (~1600 lines, no packages)
-DTC DETAILS U4.xlsx              the master workbook - the only data source
+field_data/DTC DETAILS U4.xlsx   the master workbook - the only data source
+field_data/TOPOLOGY.xlsx         your filled-in connection workbook (not read yet)
 README.md                        the user manual
 TOPOLOGY_DATA_REQUIREMENTS.md    field specification for the connection data
 CHANGELOG.md                     newest entry on top, dated
 SESSION_HANDOFF.md               state of play, updated at the end of a work session
 template/MESCOM_SLD_TEMPLATE.drawio   blank A3 sheet + symbol library (2 pages)
-template/TOPOLOGY TEMPLATE.xlsx       the collection workbook users fill in
+template/TOPOLOGY TEMPLATE.xlsx       the blank collection workbook - never fill this one
 template/route_template.csv           format sample for --route
 outputs/<date>/                  generated .drawio + PNG (ignored)
 ```
@@ -131,9 +132,9 @@ Verification scripts are throwaway — put them in the temp folder, not the repo
 - **Excel locks its files.** `--topology-template --force` fails with `PermissionError: [Errno 13]`
   (or a `~$` lock file) while the workbook is open. Ask the user to close it rather than working
   around it. Same for the master if it is open with unsaved edits — changes are then ignored.
-- **`--topology-template` refuses to overwrite** without `--force`, deliberately: the file usually
-  contains the user's field edits. Do not regenerate it unless the master changed and the user agreed;
-  prefer `--out` to a scratch path for a pre-check.
+- **`--topology-template` refuses to overwrite** without `--force`, deliberately. The blank template
+  belongs in `template/`; the file you fill in is `field_data/TOPOLOGY.xlsx`, so `--force` should
+  never touch field work. If someone has been editing the template in place, say so before rebuilding.
 - **`build_geo()` does not read the topology workbook.** Trunk shape comes from the MST or `--route`
   only. `template/TOPOLOGY TEMPLATE.xlsx` is an agreed collection format awaiting its reader — do not
   pretend it is wired in. The RMU symbol says `5-way` but does not draw five terminals.

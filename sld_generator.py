@@ -47,7 +47,8 @@ from openpyxl.worksheet.datavalidation import DataValidation
 # defaults - edit once if the master workbook moves
 # ----------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MASTER_DEFAULT = os.path.join(SCRIPT_DIR, "DTC DETAILS U4.xlsx")
+DATA_DIR = os.path.join(SCRIPT_DIR, "field_data")
+MASTER_DEFAULT = os.path.join(DATA_DIR, "DTC DETAILS U4.xlsx")
 TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
 TEMPLATE_DRAWIO = os.path.join(TEMPLATE_DIR, "MESCOM_SLD_TEMPLATE.drawio")
@@ -1534,7 +1535,7 @@ def main():
     if not os.path.exists(args.master):
         raise SystemExit(
             f"Master workbook not found: {args.master}\n"
-            f"Put 'DTC DETAILS U4.xlsx' next to this script ({SCRIPT_DIR}),\n"
+            f"Put 'DTC DETAILS U4.xlsx' in {DATA_DIR},\n"
             f"or pass the path with --master \"D:\\path\\to\\DTC DETAILS U4.xlsx\"")
     dtcs, hts, nodes = read_master(args.master)
     nodes = assign_nodes_to_feeders(nodes, dtcs)
