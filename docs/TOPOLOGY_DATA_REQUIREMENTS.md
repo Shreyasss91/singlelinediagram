@@ -354,55 +354,68 @@ Service connections and meter data do not affect the feeder diagram.
 
 ## 12. What changes in the output once this is supplied
 
-When the tool reads a completed topology workbook:
+**This is now built.** With rows in the workbook, a `--geo` run is drawn from them:
 
-* trunk drawn as one continuous heavy line, following the real run and its bends
-* each lateral drawn as its own lighter line, branching from a marked junction
-* DTC symbol at its surveyed position, joined by a short service tap — not projected onto the line
-* spur labels (`S1 Kote Road`, …) and per-spur DTC count / kVA in the summary table
-* GOS drawn inline on the correct span, open or closed as recorded
-* RMU drawn as a five-way unit, with each child cable arriving on its recorded way, so the ring reads
-  correctly and an empty way is visibly empty — not mistaken for a missing record
-* `UNPOSITIONED` box still holds anything without coordinates — nothing disappears
-* downstream count and kVA per section available for the feasibility reports
-* which DTCs each RMU way isolates, straight from `NODES!WAY` + `RMU WAYS`
+| Supplied | What the sheet does |
+|---|---|
+| `PARENT_ID` | each node is joined to its parent and to nothing else; a node parented to `SCD-36` no longer appears fed from a neighbour that happened to be nearer |
+| `SPUR_ID` | the trunk (`T`) is drawn heavier than a lateral (`S1`, `S2`…) |
+| `TYPE` | the symbol follows it: dot for a `POLE`, bar on the line for a `GOS`, box for an `RMU`, square with the kVA for a `DTC`, white square for an `HT`, source box for the `MUSS` |
+| `NODES!WAY` | the RMU box names the ways its cables arrive on (`5-way - out VL1`), so the ring can be followed off the sheet |
+| `BENDS` | that span is routed through the corners instead of run straight |
+| `SPURS!LABEL` | printed at the branch point (`S1 Chor Bazar lateral`) |
+| `LAT`/`LONG` on a non-DTC row | the pole, GOS or RMU appears, which the master alone cannot show |
+| a gap | `UNPOSITIONED` still holds anything without coordinates, now naming the parent it hangs off — nothing disappears |
 
-None of this changes the schematic layout, which already ignores geography.
+Still open, in the order the data pays for it:
 
----
+* **per-spur DTC count / kVA in the summary table** — today the table is the kVA histogram of the
+  whole feeder; a per-lateral breakdown is a drawing change, not a data one.
+* **five drawn RMU terminals** — the unit is one symbol with its cabled ways named, so an empty way is
+  simply a way nobody names rather than a visible spare terminal.
+* **GOS open/closed** — the `NORMALLY` value is read and warned about (`normally open, with load
+  recorded downstream`), but the symbol does not yet distinguish the two states.
+* **downstream count and kVA per section**, for the feasibility reports.
+* **the schematic layout** still draws DTC/HT/RMU in a fixed grid and ignores all of this.
 
-## 13. Validation the tool will run
+---## 13. Validation the tool runs
 
-Before drawing, the topology reader should reject or flag:
+`validate_topology()` runs these on the rows of the feeder being drawn, before anything is drawn.
 
-1. duplicate `NODE_ID`
-2. `PARENT_ID` that does not exist
-3. a node that is its own ancestor (cycle)
-4. more than one `MUSS` root per feeder (unless a genuine second source)
-5. a node with no parent that is not a MUSS
-6. two parents for the same node (impossible in this format — one cell only — but a duplicated row
-   with the same `NODE_ID` catches it)
-7. coordinates outside the Shivamogga envelope (lat ≈ 13.9, lon ≈ 75.5)
-8. a DTC/HT code that does not exist in the master
-9. `SPUR_ID` used on two different feeders without a `FEEDER` value
-10. a `BENDS` row whose span does not exist in `NODES`
-11. a `WAY` value on a node whose parent is not an `RMU`
-12. a `WAY` value that is not one of `ODout`, `VL1`, `VL2`, `VL3` — `ODin` belongs to the RMU row,
-    not to its children
-13. the same `RMU_ID` + `WAY` twice on `RMU WAYS`, or a way used by a child but missing from that
-    sheet
-14. two children of one RMU claiming the same way (physically impossible — one cable per terminal)
-15. a `WAY = NO` on `RMU WAYS` feeding a child marked `NC`, i.e. a node recorded downstream of an open
-    point
-16. `CONNECTED = Y` on a way with no child naming it, or `CONNECTED = N` on a way that a child does
-    name — the register and the connections must agree
-17. `CONNECTED = N` with `NORMALLY` filled in, or `CONNECTED = Y` with `NORMALLY` blank: an empty way
-    has no switch state, a cabled one does
+**Errors — the run stops, naming sheet, row and column:**
+
+1. duplicate `NODE_ID` (the same node defined twice — the format itself makes two parents impossible)
+2. `PARENT_ID` that is not a row in the workbook
+3. a node that is its own ancestor (a loop in the chain)
+4. a `WAY` value on a node whose parent is not an `RMU`
+5. a `WAY` value that is not one of `ODout`, `VL1`, `VL2`, `VL3` — `ODin` belongs to the RMU row,
+   not to its children
+6. two children of one RMU claiming the same way (physically impossible — one cable per terminal)
+
+**Warnings — printed, drawing continues:**
+
+7. a node with no `PARENT_ID` that is not a MUSS: the parent is guessed from the nearest node that is
+   not downstream of it, and that link is drawn dashed
+8. a parent with no coordinates: the line is drawn to the nearest ancestor that has them, and the
+   skipped node is named
+9. `CONNECTED = N` on a way that a child does name — the register is stale, the cable is drawn
+   (see §8: `NODES` is the tree, `RMU WAYS` is a register)
+10. `CONNECTED = Y` on a way with no child naming it — is a node missing?
+11. `CONNECTED = N` with `NORMALLY` filled in — an empty way has no switch state
+12. a way marked `NORMALLY = NO` with a child recorded downstream — the load is off that way
+13. no `RMU WAYS` rows at all for a unit that has children in `NODES`
+14. coordinates outside the Shivamogga envelope (lat 13.5–14.3, lon 75.1–76.0), or only one of
+    `LAT`/`LONG` filled: treated as unpositioned and listed in `UNPOSITIONED`
+15. a DTC/HT code that does not exist in the master — the register and the topology disagree
+16. a `BENDS` row whose span does not exist in `NODES` (the bend is ignored)
+17. a DTC or RMU that only the master holds: drawn, parent guessed, and listed
 
 An empty way is **not** an error. Only `ODin` must be `CONNECTED = Y`; the other four are commonly
 empty, `ODout` included.
 
-Errors stop the run with the row number; warnings are printed and the drawing continues.
+Still not checked, because nothing in the format carries the fact: a genuine second source on one
+feeder (item 4 above is moot while there is one `MUSS` per chain), and `SPUR_ID` reused across
+feeders (each run only ever sees one feeder's subtree).
 
 ---
 

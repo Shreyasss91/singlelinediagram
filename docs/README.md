@@ -41,7 +41,7 @@ Commands are run from the root, too.
 |---|---|
 | `sld_generator.py` | The whole tool. Reads the workbook, writes `.drawio` files, optionally renders a PNG preview. |
 | `field_data/DTC DETAILS U4.xlsx` | The DTC master. **The script reads this file from here by default.** |
-| `field_data/TOPOLOGY.xlsx` | Your copy of the connection workbook, and the one you fill in. Kept apart from `template/` so a template rebuild can never overwrite field work. The generator does not read it yet; see §8. |
+| `field_data/TOPOLOGY.xlsx` | Your copy of the connection workbook, and the one you fill in. Kept apart from `template/` so a template rebuild can never overwrite field work. **The `--geo` layout is drawn from this file**; see §8. |
 | `docs/README.md` | This manual. |
 | `docs/CHANGELOG.md` | Every change, newest first. |
 | `docs/SESSION_HANDOFF.md` | Where the work stands, and what is next. |
@@ -167,9 +167,11 @@ python sld_generator.py --feeder "MRS F1" --name "MRS F1" --geo     # geographic
 Every run prints what it did and where it wrote it:
 
 ```
+  topology    : field_data\TOPOLOGY.xlsx  |  63 DTC, 5 HT, 1 MUSS, 2 RMU
   feeder      : MRS F1  (63 DTCs, 5 HT services)
-  layout      : geo  |  62 positioned, 6 unpositioned  |  1 m = 0.89 px
-  written     : outputs\2026-10-26\MRS F1 - GEO SLD.drawio
+  layout      : geo  |  65 nodes placed, 6 unpositioned  |  1 m = 0.89 px
+  source      : connection workbook, 2 link(s) guessed
+  written     : outputs\2026-10-27\MRS F1 - GEO SLD.drawio
 ```
 
 **Output goes to `outputs\<today's date>\`.** A run on 26 October 2026 writes to
@@ -187,8 +189,10 @@ Use `--outdir` to choose another folder, or `--out` for one specific file.
 | `--outdir "folder"` | date-stamped folder is replaced by this one |
 | `--geo` | geographical layout instead of the schematic |
 | `--muss "lat,lon"` | override the substation position, e.g. `--muss "13.9305,75.58584"` |
-| `--extent cluster\|all` | geo only: fit the DTC network (default) or include the MUSS in the fitted area |
+| `--extent cluster\|all` | geo only: fit the node network (default) or include the MUSS in the fitted area |
 | `--route file.csv` | surveyed pole coordinates for the trunk (see §7) |
+| `--topology file.xlsx` | use a different connection workbook (default `field_data/TOPOLOGY.xlsx`) |
+| `--no-topology` | ignore the connection workbook and infer the trunk again (see §6) |
 | `--master path.xlsx` | use a different workbook |
 | `--preview` | also write a PNG next to the `.drawio` |
 | `--template` | rewrite `template/MESCOM_SLD_TEMPLATE.drawio` |
@@ -228,7 +232,8 @@ Use it when you want a **neat drawing** for submission. Use `--geo` when you wan
 
 ## 6. The geographical layout (`--geo`)
 
-Each DTC is placed at its surveyed position, north up, at a uniform scale. What the generator does:
+Every node is placed at its surveyed position, north up, at a uniform scale, and joined the way the
+connection workbook (§8) records it. What the generator does:
 
 1. **Reads and cleans the coordinates.** Anything more than 5 km from the median of the feeder is
    dropped and reported, so a single typo cannot stretch the sheet. Example from the current data:
@@ -238,21 +243,39 @@ Each DTC is placed at its surveyed position, north up, at a uniform scale. What 
 2. **Projects to the sheet.** A local equirectangular projection (≈111.32 km per degree of
    longitude, 110.54 km per degree of latitude) converts degrees to metres; metres then map to the
    A3 drawing area with one uniform scale for both axes, so distances stay proportional.
-3. **Draws the trunk.** With no route file, a **minimum spanning tree** is built over the DTC
-   points: starting from the MUSS (or one end of the network if the MUSS position is unknown), each
-   remaining DTC is connected to its nearest already-connected neighbour. On a radial 11 kV feeder
-   that reproduces the real shape closely, but it may cut across a block where the actual line
-   loops around a street.
-4. **Places each DTC off the line.** The symbol sits ~30 px perpendicular to the segment feeding it,
-   joined by a thin spur, on the side away from the network centre — so the trunk never runs through
-   a transformer symbol.
+3. **Joins each node to its parent.** `PARENT_ID` in the connection workbook is the tree: a DTC fed
+   from `SCD-36` is drawn to `SCD-36` and to nothing else. The trunk (`SPUR_ID = T`) is drawn heavier
+   than a lateral (`S1`, `S2`, …), a `BENDS` row bends that one span around the corner it records,
+   and a link the tool had to guess is drawn **dashed**. With no workbook — or with `--no-topology` —
+   a **minimum spanning tree** over the coordinates is used instead: a likeness, not a record.
+4. **Draws each node as the symbol for its `TYPE`.** A DTC is a square with its kVA inside, an HT
+   service a white square, a pole a dot carrying its code, the GOS a bar sitting on the line, the
+   RMU a box naming the ways its cables arrive on, and the MUSS the source box. A symbol that has to
+   move off a crowded spot is joined back to its own point by a thin service tap, so the line always
+   marks the surveyed position.
 5. **Places the labels.** Each label tries twelve positions (below, above, right, left, at three
-   distances) and keeps the freest one. Where two DTCs sit on the same spot, the symbols are nudged
+   distances) and keeps the freest one. Where two nodes sit on the same spot, the symbols are nudged
    apart so both ratings stay visible.
 6. **Adds the drawing aids** — a scale bar in metres and a north arrow, so the sheet cannot be
    mistaken for a to-scale survey.
-7. **Lists what it could not place** in a dashed `UNPOSITIONED` box along the bottom, with code and
-   name, so nothing silently disappears.
+7. **Lists what it could not place** in a dashed `UNPOSITIONED` box along the bottom, with code,
+   name and the parent it hangs off, so nothing silently disappears and a missing coordinate can be
+   filled in from the register.
+
+### Where the shape came from
+
+The subtitle names the source, so a printed sheet says how much to trust it:
+
+| Subtitle says | Meaning |
+|---|---|
+| `connection workbook` | parents, spurs, ways and bends were read from `field_data/TOPOLOGY.xlsx` |
+| `connection workbook, 2 link(s) guessed` | two nodes had no usable parent and were attached to the nearest node; those links are drawn dashed |
+| `inferred trunk` | no workbook rows for this feeder, or `--no-topology`: minimum spanning tree |
+| `surveyed route` | `--route` was given; the run follows that pole list |
+
+A parent that has no coordinates cannot be drawn to, so the link goes to the nearest ancestor that
+has them and the console says which node was skipped. Nothing is drawn from a coordinate the tool
+rejected: `SCD-68`'s `3.926426` lands in `UNPOSITIONED` and pulls no line with it.
 
 ### Substation position
 
@@ -288,14 +311,23 @@ dense cluster.
 
 ### RMUs
 
-Every RMU from sheet `NON DTC NODES` that belongs to this feeder is drawn as a `90 × 24` box marked
-`RMU` at its surveyed position, connected by a stub to the nearest point on the trunk, with its name
-and `5-way` underneath. In the dense Bazaar area the box searches 8 directions × 4 distances for a
-clear spot, so it never covers a DTC — the stub still marks the real position.
+Every RMU that belongs to this feeder is drawn as a `90 × 24` box marked `RMU` at its surveyed
+position, its name underneath and the ways its cables arrive on under that:
 
-An RMU is a five-way unit — `ODin`, `ODout`, `VL1`, `VL2`, `VL3` — so the box is a single symbol, not
-five terminals: the drawing shows that the asset exists on that spot, while which cable lands on
-which way is recorded in the topology workbook (§8).
+```
+RAMANNASHETTY PARK RMU
+5-way - out VL1
+```
+
+`out VL1` is read from `NODES!WAY`: the nodes whose `PARENT_ID` is this RMU name the way they leave
+by (§8), so the ring can be followed off the sheet. An RMU is a five-way unit — `ODin`, `ODout`,
+`VL1`, `VL2`, `VL3` — drawn as one symbol with the cabled ways named; it does not draw five
+terminals, and an empty way is simply a way nobody names.
+
+When the `RMU WAYS` register disagrees with the connections — a way marked `CONNECTED = N` that a
+child leaves by, or `CONNECTED = Y` on a way no child names — the run prints it and draws what
+`NODES` says, because the connections are the tree and the register is a separate record that needs
+the update.
 
 ### Reading the scale line
 
@@ -378,9 +410,53 @@ or the node is an HT/RMU whose tap is not recorded. Those need a manual parent.
 `--topology-template --force` rewrites, so anything edited in place there is destroyed on the next
 rebuild. Keep the sheet names and column order as they are — the reader will key on them.
 
-The generator does **not read this workbook yet**. It is the agreed collection format, and `--route`
-remains the only way to shape the trunk today; wiring `NODES` into the geographical layout is the
-next code change.
+**The generator reads this workbook** — it is what shapes a `--geo` sheet. For the feeder being
+drawn it takes the rows whose `FEEDER` cell is that feeder, the MUSS above them, and any row whose
+`FEEDER` cell was left blank but hangs under one of them, then:
+
+* joins every node to its `PARENT_ID` — so a DTC fed from `SCD-36` is drawn to `SCD-36` and to
+  nothing else;
+* draws the equipment the master does not hold — poles, the GOS and the RMU;
+* names the ways each RMU's cables arrive on, from `NODES!WAY`;
+* bends a span through its `BENDS` rows instead of running it straight;
+* prints `<b>S1</b> Chor Bazar lateral` at the branch point when that spur has a `LABEL` on sheet
+  `SPURS`, so the sheet and the spur register read together;
+* checks the rows against each other before drawing, and says what it had to guess.
+
+When `NODES` and the `RMU WAYS` register disagree, the connection tree wins: a child parented to an
+RMU is drawn on its recorded way, and the register row is reported as needing an update.
+
+```
+  topology    : field_data\TOPOLOGY.xlsx  |  19 DTC, 1 GOS, 1 MUSS, 1 POLE, 1 RMU
+  ! NODES!6 RMU-RAMANNA-SHETTY-PARK: no PARENT_ID - its parent is guessed from the nearest node
+    and drawn dashed
+  ! RMU WAYS!14 RMU-RAMANNA-SHETTY-PARK VL1: CONNECTED = N but P-001 leaves by that way - set it to Y
+  links       : 1 guessed, drawn dashed - RMU-RAMANNA-SHETTY-PARK
+```
+
+### What the reader checks
+
+| Check | Reported as |
+|---|---|
+| duplicate `NODE_ID` | **error** — nothing is drawn until it is fixed |
+| `PARENT_ID` that is not a row in the workbook | **error** |
+| a node that is its own ancestor | **error** |
+| `WAY` naming `ODin`, or on a node whose parent is not an RMU | **error** |
+| two children of one RMU claiming the same way | **error** |
+| no `PARENT_ID` on a node that is not a MUSS, with coordinates | warning — parent guessed from the nearest node, drawn dashed |
+| `CONNECTED = N` on a way that a child leaves by | warning — the register needs updating |
+| `CONNECTED = Y` on a way that no child names | warning — is a node missing? |
+| an empty way carrying a `NORMALLY` value | warning — an empty way has no switch state |
+| a way marked `NO` with load recorded downstream | warning — the load is off |
+| `LAT`/`LONG` outside lat 13.5–14.3, lon 75.1–76.0, or only one of the pair filled | warning — treated as unpositioned |
+| a `DTC`/`HT` row whose code is not in the master | warning |
+| a `BENDS` row for a span that is not a parent link | warning — the bend is ignored |
+
+Errors stop the run and name the sheet, row and column to change. Warnings are printed and the sheet
+is still drawn — an unfinished workbook still produces a usable sheet, with the guesses dashed.
+
+`--topology <file>` points at another copy (useful for trying a change without touching the field
+file); `--no-topology` goes back to the inferred trunk for one run.
 
 Rebuild it from the current master when the workbook changes:
 
@@ -492,9 +568,9 @@ Add its DTCs to `ALL` with the feeder name, run `--list` to confirm it appears, 
 Nothing in the code is feeder-specific.
 
 **You want the real trunk and spurs instead of a guess**
-Fill `template/TOPOLOGY TEMPLATE.xlsx` (§8). This is the collection format for the connection data;
-the reader is the next code step. Until it is wired in, `--route` remains the only way to change the
-trunk.
+Fill `field_data/TOPOLOGY.xlsx` (§8): copy the template there once, then correct `PARENT_ID`,
+`SPUR_ID` and `WAY` per feeder. The sheet is drawn from it on the next `--geo` run, and every row
+you leave `INFERRED` is still an MST guess worth correcting.
 
 **You want to prove the drawing matches the register**
 The summary table on every sheet is computed from the same rows that produced the symbols, so a
@@ -506,9 +582,11 @@ come from the same rows as the spur lines.
 ## 11. Known limitations
 
 * **Topology is inferred, not surveyed.** The master has no parent/child data, so the trunk can take
-  a shortcut the real line does not take and a lateral can be guessed wrongly. `--route` fixes the
-  trunk shape only. `template/TOPOLOGY TEMPLATE.xlsx` (§8) is the data that will fix the tree; the
-  generator does not read it yet.
+  a shortcut the real line does not take and a lateral can be guessed wrongly. Fill
+  `field_data/TOPOLOGY.xlsx` (§8) to fix it, or use `--route` for a surveyed trunk.
+* **A guess is drawn dashed, but it is still a guess.** A node with no `PARENT_ID`, an RMU whose tap
+  pole is not recorded, a DTC the workbook has no row for: each is attached to the nearest node that
+  is not downstream of it. Read the console before signing the sheet — every guessed link is listed.
 * **Dense areas need a hand.** On MRS F1 the DTCs are 48 m apart, which is ~46 px on A3, while a
   label is 100 px wide. The label placement minimises overlap but cannot eliminate it; the tightest
   corner will still need a nudge in draw.io. F13 and F22 have plenty of room.
@@ -542,9 +620,19 @@ At the time of writing:
 * **Node coordinates** — MUSS and RMU positions in `NON DTC NODES` are trusted as given and are not
   outlier-checked against the DTC cluster. A wrong value puts the substation box or an RMU in the
   wrong part of the city; check them once on a map.
-* **Inferred parents** — in `template/TOPOLOGY TEMPLATE.xlsx`, `PARENT_ID` is a minimum-spanning-tree
-  guess until it is confirmed against the hand SLD. Amber `BASIS = INFERRED` rows are the ones to
-  check; the guess is a starting point, not a survey.
+* **Inferred parents** — in `field_data/TOPOLOGY.xlsx`, `PARENT_ID` is a minimum-spanning-tree guess
+  until it is confirmed against the hand SLD. `BASIS = INFERRED` rows are the ones to check; the
+  guess is a starting point, not a survey. `--list` reports the split per feeder.
+
+Two connection-workbook rows are stale at the time of writing, and the drawings follow `NODES`
+while saying so:
+
+* **`RMU WAYS` disagrees with `NODES` for `RMU-RAMANNA-SHETTY-PARK`.** `P-001` leaves by way `VL1`,
+  but the register says `VL1` is `CONNECTED = N`. Set that cell to `Y` (one of the two rows is
+  wrong, and the child is the one with the cable).
+* **No RMU has a `PARENT_ID` yet** — `RMU-KOTE-ROAD`, `RMU-GANGOTHTI-COLLEGE` and
+  `RMU-RAMANNA-SHETTY-PARK` are each attached to the nearest node that is not downstream of them and
+  drawn dashed. Record the pole each unit is fed from and the guess goes away.
 
 ---
 
@@ -560,7 +648,11 @@ At the time of writing:
 | Labels overlap badly | Expected in the densest clusters; move them in draw.io. |
 | MUSS box says `(position approx.)` | No MUSS row in `NON DTC NODES`, or its name does not contain the station text from column `J`. |
 | MUSS box says `x km beyond the edge` | Normal when the substation is far from the load centre; use `--extent all` for a strict true-scale sheet. |
-| An RMU is missing from a sheet | It was assigned to a different feeder — its nearest DTC belongs to another one. Move the row's coordinates or accept the assignment. |
+| An RMU is missing from a sheet | In a `--geo` run it comes from the workbook: check its `FEEDER` cell and that its `PARENT_ID` chain reaches this feeder. Without a workbook row it is assigned by nearest DTC, so it can land on another feeder. |
+| A pole, GOS or `P-001` is missing from a sheet | Its row is not in the chain the feeder draws: set `FEEDER` on the row, or parent it under a node of this feeder. |
+| A line comes off two DTCs at once | Look at `NODES!PARENT_ID` for the DTC that should hang off one of them; the drawing is only following the workbook. |
+| `X disagrees with itself - nothing was drawn` | A structural error: duplicate `NODE_ID`, a `PARENT_ID` that is not a row, a loop, a bad `WAY`. The message names sheet, row and column. |
+| `no PARENT_ID - its parent is guessed … drawn dashed` | Fill in `PARENT_ID` for that row (§8). Until then the link is a dashed guess, listed in the console. |
 | A `.drawio` will not open | Check it was not renamed to `.xml`; draw.io needs the `.drawio` extension. |
 | `--topology-template` says the file already exists | It refuses to overwrite your edits. Close Excel, then use `--force` to rebuild or `--out` for a new file. |
 | `Permission denied` saving `TOPOLOGY TEMPLATE.xlsx` | The workbook is open in Excel. Close it and rerun; the `~$` file beside it is the lock. |

@@ -2,12 +2,14 @@
 """
 MESCOM SLD generator
 ====================
-Reads the DTC master workbook (sheets "ALL" + "HT") and writes an editable
+Reads the DTC master workbook (sheets "ALL", "HT", "NON DTC NODES") and the
+connection workbook "field_data/TOPOLOGY.xlsx", and writes an editable
 diagrams.net / draw.io single line diagram for one feeder.
 
     python sld_generator.py --list
     python sld_generator.py --feeder "Mandli F13" --preview
     python sld_generator.py --feeder "MRS F1" --geo --preview
+    python sld_generator.py --feeder "MRS F1" --geo --no-topology
     python sld_generator.py --feeder "MRS F1" --geo --muss "13.9305,75.5842"
     python sld_generator.py --feeder "MRS F1" --geo --route poles.csv
     python sld_generator.py --template
@@ -15,8 +17,12 @@ diagrams.net / draw.io single line diagram for one feeder.
 
 Two layouts:
   default  - distributor with equally spaced laterals (clean schematic)
-  --geo    - every DTC at its surveyed GPS position, trunk inferred by a
-             minimum spanning tree (or taken from --route pole coordinates)
+  --geo    - every node at its surveyed GPS position. What connects to what
+             comes from the connection workbook: PARENT_ID per node, RMU ways,
+             BENDS to shape a span, SPURS to name a lateral. Without that
+             workbook (or with --no-topology) the trunk is inferred by a
+             minimum spanning tree, and --route overrides it with a surveyed
+             pole list.
 
 Output: "outputs/<YYYY-MM-DD>/<name> SLD.drawio" (or "<name> - GEO SLD.drawio").
 Open it in draw.io / diagrams.net, or in VS Code with the "Draw.io Integration"
@@ -53,9 +59,14 @@ TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
 OUTPUT_ROOT = os.path.join(SCRIPT_DIR, "outputs")
 TEMPLATE_DRAWIO = os.path.join(TEMPLATE_DIR, "MESCOM_SLD_TEMPLATE.drawio")
 TOPOLOGY_TEMPLATE = os.path.join(TEMPLATE_DIR, "TOPOLOGY TEMPLATE.xlsx")
+TOPOLOGY_DEFAULT = os.path.join(DATA_DIR, "TOPOLOGY.xlsx")
 SHEET_ALL = "ALL"
 SHEET_HT = "HT"
 SHEET_NODES = "NON DTC NODES"
+SHEET_TOPO_NODES = "NODES"
+SHEET_TOPO_WAYS = "RMU WAYS"
+SHEET_TOPO_BENDS = "BENDS"
+SHEET_TOPO_SPURS = "SPURS"
 
 # real substation coordinates: fill once, or pass --muss "lat,lon"
 STATIONS = {
@@ -94,9 +105,16 @@ ST_MUSS = ("rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8e
            "strokeWidth=1.5;fontSize=11;fontStyle=1;arcSize=18;")
 ST_RMU = ("rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;"
           "strokeWidth=1.2;fontSize=9;fontStyle=1;arcSize=10;")
+ST_POLE = "ellipse;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=#6c8ebf;"
+ST_GOS = "rounded=0;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=none;"
+ST_TINY = ("text;html=1;align=center;verticalAlign=middle;fontSize=6;whiteSpace=wrap;"
+           "fontColor=#1a1a1a;")
 ST_LINE = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=1;"
 ST_TRUNK = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=1.5;"
 ST_GEO = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=1.3;edgeStyle=none;"
+# a guess, not a record: dashed so nobody reads it as surveyed
+ST_GUESS = ("endArrow=none;html=1;rounded=0;dashed=1;strokeColor=#6c8ebf;"
+            "strokeWidth=1.1;edgeStyle=none;")
 ST_STUB = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=0.8;edgeStyle=none;"
 ST_DASH = ("endArrow=classic;html=1;rounded=0;dashed=1;strokeColor=#6c8ebf;"
            "strokeWidth=1;edgeStyle=none;")
@@ -251,9 +269,337 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s\-]+", " ", s.strip().lower())
 
 
+def _station_matches(name: str, station: str) -> bool:
+    """'110/11KV MANDLI' matches the node name '110/11KV MANDLI MUSS'."""
+    a, b = _norm(name), _norm(station)
+    return bool(a) and bool(b) and (a in b or b in a)
+
+
 def pick(items, feeder: str):
     want = _norm(feeder)
     return [it for it in items if _norm(it["feeder"]) == want]
+
+
+# ----------------------------------------------------------------------------
+# topology workbook - the connection record the user fills in
+# ----------------------------------------------------------------------------
+# NODES is the tree: one row per physical node, one PARENT_ID each. RMU WAYS is a
+# register of terminals, BENDS shapes a span around a corner, SPURS names the
+# laterals. Read here, drawn by build_geo().
+ENVELOPE_LAT = (13.5, 14.3)      # Shivamogga, generously drawn
+ENVELOPE_LON = (75.1, 76.0)
+VALID_CHILD_WAYS = ("ODout", "VL1", "VL2", "VL3")
+
+
+def read_topology(path: str):
+    """Read the connection workbook. Returns None when there is nothing to read."""
+    if not path or not os.path.exists(path):
+        return None
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    nodes = []
+    if SHEET_TOPO_NODES in wb.sheetnames:
+        for i, row in enumerate(wb[SHEET_TOPO_NODES].iter_rows(min_row=2, values_only=True),
+                               start=2):
+            row = list(row) + [None] * 15
+            nid = _txt(row[0])
+            if not nid:
+                continue
+            nodes.append(dict(id=nid, row=i, type=_txt(row[1]).upper(), name=_txt(row[2]),
+                              feeder=_txt(row[3]), lat=_num(row[4]), lon=_num(row[5]),
+                              parent=_txt(row[6]), spur=_txt(row[7]).upper(),
+                              way=_txt(row[8]), kva=_kva(row[9]),
+                              normally=_txt(row[11]).upper(), basis=_txt(row[13]).upper()))
+    ways = defaultdict(dict)
+    if SHEET_TOPO_WAYS in wb.sheetnames:
+        for i, row in enumerate(wb[SHEET_TOPO_WAYS].iter_rows(min_row=2, values_only=True),
+                                start=2):
+            row = list(row) + [None] * 7
+            rid, way = _txt(row[0]), _txt(row[1])
+            if rid and way:
+                ways[rid][way] = dict(connected=_txt(row[3]).upper() == "Y",
+                                      normally=_txt(row[4]).upper(), label=_txt(row[5]),
+                                      row=i)
+    bends = defaultdict(list)
+    if SHEET_TOPO_BENDS in wb.sheetnames:
+        for row in wb[SHEET_TOPO_BENDS].iter_rows(min_row=2, values_only=True):
+            row = list(row) + [None] * 6
+            frm, to = _txt(row[0]), _txt(row[1])
+            lat, lon = _num(row[3]), _num(row[4])
+            if not (frm and to) or lat is None or lon is None:
+                continue
+            seq = _num(row[2]) or len(bends[(frm, to)]) + 1
+            bends[(frm, to)].append((seq, lat, lon))
+    for pts in bends.values():
+        pts.sort()
+    spurs = {}
+    if SHEET_TOPO_SPURS in wb.sheetnames:
+        for row in wb[SHEET_TOPO_SPURS].iter_rows(min_row=2, values_only=True):
+            row = list(row) + [None] * 8
+            if _txt(row[0]) and _txt(row[1]):
+                spurs[(_norm(row[0]), _txt(row[1]).upper())] = _txt(row[2])
+    dups = sorted(nid for nid, c in Counter(n["id"] for n in nodes).items() if c > 1)
+    wb.close()
+    return dict(path=path, nodes=nodes, ways=ways, bends=bends, spurs=spurs, dups=dups)
+
+
+def topology_root(sel, station: str):
+    """The source row this feeder hangs off: the MUSS the master names for it."""
+    muss = [n for n in sel if n["type"] == "MUSS"]
+    for n in muss:
+        if _station_matches(n["name"], station):
+            return n
+    return muss[0] if muss else None
+
+
+def topology_for_feeder(topo, feeder: str, station: str):
+    """The rows one feeder draws: its own rows, the MUSS above them and any row
+    whose FEEDER cell was left blank but hangs under one of them.
+
+    Taking the subtree rather than "every row whose FEEDER matches" means a
+    feeder cannot pick up another one's network, and a hand-added row under a
+    feeder node is drawn even before its FEEDER cell is filled in.
+    """
+    if not topo:
+        return []
+    nodes = topo["nodes"]
+    by_id = {n["id"]: n for n in nodes}
+    want = _norm(feeder)
+    chosen = {n["id"]: n for n in nodes if _norm(n["feeder"]) == want}
+    root = topology_root([n for n in nodes if n["type"] == "MUSS"], station)
+    if root:
+        chosen[root["id"]] = root
+    if not chosen:
+        return []
+    for nid in list(chosen):                      # ancestors - the source above it
+        cur, guard = by_id.get(nid), 0
+        while cur and guard < 500:
+            p = by_id.get(cur["parent"])
+            if not p or p["id"] in chosen:
+                break
+            chosen[p["id"]] = p
+            cur, guard = p, guard + 1
+    kids = defaultdict(list)
+    for n in nodes:
+        if n["parent"]:
+            kids[n["parent"]].append(n)
+    stack = [n["id"] for n in chosen.values() if _norm(n["feeder"]) == want]
+    while stack:                                  # descendants - blank FEEDER cells
+        for k in kids.get(stack.pop(), []):
+            if k["id"] not in chosen:
+                chosen[k["id"]] = k
+                stack.append(k["id"])
+    return [n for n in nodes if n["id"] in chosen]
+
+
+def validate_topology(sel, topo, master_codes):
+    """Structural checks on the rows this feeder will draw.
+
+    An error means the drawing would state something untrue - a broken parent
+    link, a cable on a way that cannot carry one - and stops the run. A warning
+    is printed and the sheet is still drawn.
+    """
+    errors, warns = [], []
+    by_id = {n["id"]: n for n in sel}
+    for nid in topo.get("dups", []):
+        if nid in by_id:
+            rows = ", ".join(str(n["row"]) for n in sel if n["id"] == nid)
+            errors.append(f"NODES!NODE_ID {nid} appears on rows {rows} - one row per node, "
+                          "rename one of them")
+    for n in sel:
+        if n["parent"] == n["id"]:
+            errors.append(f"NODES!{n['row']} {n['id']}: PARENT_ID points at itself")
+        elif n["parent"] and n["parent"] not in by_id:
+            errors.append(f"NODES!{n['row']} {n['id']}: PARENT_ID {n['parent']!r} is not a "
+                          "node in this workbook")
+    for n in sel:                                 # a loop would draw forever upstream
+        seen, cur = set(), n
+        while cur and cur["parent"]:
+            if cur["id"] in seen:
+                errors.append(f"NODES!{n['row']} {n['id']}: the PARENT_ID chain loops back "
+                              f"to {cur['id']}")
+                break
+            seen.add(cur["id"])
+            cur = by_id.get(cur["parent"])
+    for n in sel:
+        if not n["parent"] and n["type"] != "MUSS" and n["lat"] is not None:
+            warns.append(f"NODES!{n['row']} {n['id']}: no PARENT_ID - its parent is guessed "
+                         "from the nearest node and drawn dashed")
+        if (n["lat"] is None) != (n["lon"] is None):
+            warns.append(f"NODES!{n['row']} {n['id']}: only one of LAT/LONG is filled - "
+                         "treated as having no coordinates")
+        elif n["lat"] is not None and not (ENVELOPE_LAT[0] <= n["lat"] <= ENVELOPE_LAT[1]
+                                           and ENVELOPE_LON[0] <= n["lon"] <= ENVELOPE_LON[1]):
+            warns.append(f"NODES!{n['row']} {n['id']}: {n['lat']}, {n['lon']} is outside the "
+                         "Shivamogga envelope - check the row")
+        if n["type"] in ("DTC", "HT") and n["id"].upper() not in master_codes:
+            warns.append(f"NODES!{n['row']} {n['id']}: no {n['type']} row with that code in the "
+                         "master - the register and the topology disagree")
+        if n["way"]:
+            parent = by_id.get(n["parent"])
+            if not parent or parent["type"] != "RMU":
+                errors.append(f"NODES!{n['row']} {n['id']}: WAY {n['way']!r} but its parent "
+                              f"{n['parent'] or '(none)'!r} is not an RMU")
+            elif n["way"] not in VALID_CHILD_WAYS:
+                errors.append(f"NODES!{n['row']} {n['id']}: WAY {n['way']!r} is not a way out "
+                              f"of an RMU - use {'/'.join(VALID_CHILD_WAYS)}")
+
+    used = defaultdict(list)                      # one cable per terminal
+    for n in sel:
+        if n["way"] and by_id.get(n["parent"], {}).get("type") == "RMU":
+            used[(n["parent"], n["way"])].append(n)
+    for (rid, way), kids in sorted(used.items()):
+        if len(kids) > 1:
+            who = ", ".join(k["id"] for k in kids)
+            errors.append(f"RMU {rid} way {way} is claimed by {who} - one cable per terminal")
+    for n in sel:
+        if n["type"] != "RMU":
+            continue
+        reg = topo["ways"].get(n["id"], {})
+        if not reg:
+            warns.append(f"{n['id']}: no rows on sheet '{SHEET_TOPO_WAYS}' - the five ways "
+                         "are not recorded")
+        for way, rec in sorted(reg.items()):
+            if way == "ODin":
+                continue
+            kids = [k["id"] for k in used.get((n["id"], way), [])]
+            if rec["connected"] and not kids:
+                warns.append(f"{SHEET_TOPO_WAYS}!{rec['row']} {n['id']} {way}: CONNECTED = Y "
+                             "but no child names that way - is a node missing?")
+            if kids and not rec["connected"]:
+                # NODES is the tree and RMU WAYS is a register: the cable is drawn,
+                # because a child is parented here, and the register is the stale one
+                warns.append(f"{SHEET_TOPO_WAYS}!{rec['row']} {n['id']} {way}: CONNECTED = N "
+                             f"but {', '.join(kids)} leaves by that way - set it to Y")
+            if not rec["connected"] and rec["normally"]:
+                warns.append(f"{SHEET_TOPO_WAYS}!{rec['row']} {n['id']} {way}: empty way with "
+                             "a NORMALLY value - an empty way has no switch state")
+            if kids and rec["normally"] == "NO":
+                warns.append(f"{n['id']} {way}: normally open, with {', '.join(kids)} recorded "
+                             "downstream - the load is off")
+    for (frm, to) in sorted(topo["bends"]):       # a bend must belong to a real span
+        if frm in by_id and to in by_id and by_id[to]["parent"] != frm:
+            warns.append(f"BENDS row for {frm} -> {to}, but {to}'s PARENT_ID is "
+                         f"{by_id[to]['parent'] or '(blank)'} - the bend is ignored")
+    return errors, warns
+
+
+def topology_items(dtcs, hts, sel, extra_nodes=()):
+    """Merge the topology rows with the register in the master.
+
+    The master owns a DTC's name, rating and GPS - it is the register the
+    estimates are made from - while the topology provides the non-DTC equipment
+    (poles, the GOS, the RMU) and every parent link. Equipment that only the
+    master knows about is still drawn, so nothing quietly disappears.
+    """
+    master = {it["code"].upper(): it for it in list(dtcs) + list(hts)}
+    items, missing, moved = [], [], []
+    listed = {n["id"].upper() for n in sel}
+    for n in sel:
+        it = dict(n)
+        it["code"] = n["id"]
+        m = master.get(n["id"].upper())
+        if m:
+            if m.get("lat") is not None and n["lat"] is not None:
+                gap = _distance_m((m["lat"], m["lon"]), (n["lat"], n["lon"]))
+                if gap > 100:
+                    moved.append(f"{n['id']}: master and topology are {gap:.0f} m apart - "
+                                 "the master is used")
+            it.update(name=m["name"], kva=m["kva"], kind=m["kind"], type=m["kind"])
+            if m.get("lat") is not None:
+                it["lat"], it["lon"] = m["lat"], m["lon"]
+        else:
+            it["kind"] = n["type"] or "NODE"
+        items.append(it)
+    for code, m in master.items():                # a DTC added to the master only
+        if code in listed:
+            continue
+        it = dict(m)
+        it.update(code=m["code"], type=m["kind"], parent="", spur="", way="", row=None,
+                  normally="", basis="MASTER-ONLY")
+        items.append(it)
+        missing.append(m["code"])
+    for nd in extra_nodes:                        # an RMU recorded in the master only
+        gap = [_distance_m((it["lat"], it["lon"]), (nd["lat"], nd["lon"]))
+               for it in items if it.get("lat") is not None]
+        if gap and min(gap) < 30:
+            continue                              # the workbook has it, under its own id
+        it = dict(nd)
+        it.update(code=nd["name"], type="RMU", kind="RMU", parent="", spur="", way="",
+                  row=None, normally="", basis="MASTER-ONLY")
+        items.append(it)
+        missing.append(nd["name"])
+    return items, missing, moved
+
+
+def resolve_links(items, root_id, drawn=None):
+    """The link to draw for every node, and why when it is a guess.
+
+    A parent with no coordinates cannot be drawn to, so the line goes to the
+    nearest ancestor that has them; a node with no usable ancestor is hung off
+    the nearest node that is not downstream of it. Both are guesses - the
+    drawing dashes them and the console says so. `drawn` is the set that will
+    actually appear, so a rejected coordinate cannot pull a line across the
+    sheet to nowhere.
+    """
+    by_id = {it["code"]: it for it in items}
+    placed = set(drawn) if drawn else {c for c, it in by_id.items()
+                                       if it.get("lat") is not None}
+    kids = defaultdict(list)
+    for it in items:
+        if it["parent"] in by_id and it["parent"] != it["code"]:
+            kids[it["parent"]].append(it["code"])
+
+    def downstream(code):
+        out, stack = set(), [code]
+        while stack:
+            u = stack.pop()
+            out.add(u)
+            stack.extend(k for k in kids[u] if k not in out)
+        return out
+
+    links = {}
+    for it in items:
+        code = it["code"]
+        if code == root_id:
+            links[code] = (None, "")
+            continue
+        cur, skipped = it["parent"], []
+        while cur and cur in by_id and cur not in placed:
+            skipped.append(cur)
+            cur = by_id[cur]["parent"]
+        if cur and cur in placed and cur not in downstream(code):
+            why = ""
+            if it["parent"] and it["parent"] not in by_id:
+                why = f"parent {it['parent']} is not in the workbook - attached to {cur}, guessed"
+            elif skipped:
+                why = (f"line drawn to {cur}, past the unpositioned "
+                       f"{', '.join(skipped)}")
+            links[code] = (cur, why)
+            continue
+        if code not in placed:
+            links[code] = (None, "")
+            continue
+        here = (it["lat"], it["lon"])
+        blocked = downstream(code)
+        cand = [c for c in placed if c not in blocked and c != code]
+        if not cand:
+            links[code] = (None, "")
+            continue
+        near = min(cand, key=lambda c: _distance_m(here, (by_id[c]["lat"], by_id[c]["lon"])))
+        links[code] = (near, f"no usable parent - attached to the nearest node {near}, guessed")
+    return links
+
+
+def _rmu_ways_text(used, known):
+    """The ways cables actually arrive on, for the line under the unit's name.
+
+    `used` is what the children name in NODES!WAY - the drawing shows the cables
+    that are recorded, so a way is named here only when something lands on it.
+    """
+    if not known:
+        return "5-way"
+    out = [w for w in VALID_CHILD_WAYS if w in used]
+    return "5-way" + (f" - out {', '.join(out)}" if out else " - no way out recorded")
 
 
 # ----------------------------------------------------------------------------
@@ -349,11 +695,16 @@ def summary_table(d: Page, dtcs, y0=1060):
 def unpositioned_block(d: Page, bad):
     if not bad:
         return
-    codes = ", ".join(f"{it['code']} {crop_name(it['name'], 16)}" for it in bad)
+    parts = []
+    for it in bad:
+        parent = it.get("parent")
+        parts.append(f"{it['code']} {crop_name(it['name'], 16)}"
+                     + (f" (from {parent})" if parent else ""))
+    codes = ", ".join(parts)
     x0, y0, w = 60, 1012, 1080
     lines = (w - 12) / 4.6
     h = 26 + 11 * max(1, math.ceil(len(codes) / lines))
-    d.vertex(f"<b>UNPOSITIONED  -  no usable GPS in the master</b><br>{codes}",
+    d.vertex(f"<b>UNPOSITIONED  -  no usable GPS</b><br>{codes}",
              x0, y0, w, h, ST_BOX)
 
 
@@ -385,34 +736,68 @@ def _overlaps(a, b, pad=2):
                 a[3] + pad <= b[1] or b[3] + pad <= a[1])
 
 
-def _clamp_label(x, y):
-    x = min(max(x, 20), PAGE_W - 20 - LBL_W)
-    y = min(max(y, 96), TABLE_TOP - 24 - LBL_H)
+def _clamp_label(x, y, w=LBL_W, h=LBL_H):
+    x = min(max(x, 20), PAGE_W - 20 - w)
+    y = min(max(y, 96), TABLE_TOP - 24 - h)
     return x, y
 
 
-def place_label(d: Page, cx, cy, value, taken, bw=DTC_W, bh=DTC_H):
+def place_label(d: Page, cx, cy, value, taken, bw=DTC_W, bh=DTC_H,
+                w=LBL_W, h=LBL_H, style=ST_LBL):
     """Put a label on the freest spot around the symbol at (cx, cy)."""
     candidates = []
     for dist in (0, 22, 44):
         candidates += [
-            (cx - LBL_W / 2, cy + bh / 2 + 3 + dist),             # below
-            (cx - LBL_W / 2, cy - bh / 2 - LBL_H - 3 - dist),     # above
-            (cx + bw / 2 + 3 + dist, cy - LBL_H / 2),             # right
-            (cx - bw / 2 - LBL_W - 3 - dist, cy - LBL_H / 2),     # left
+            (cx - w / 2, cy + bh / 2 + 3 + dist),                 # below
+            (cx - w / 2, cy - bh / 2 - h - 3 - dist),             # above
+            (cx + bw / 2 + 3 + dist, cy - h / 2),                 # right
+            (cx - bw / 2 - w - 3 - dist, cy - h / 2),             # left
         ]
     best, best_cost = None, None
     for cx0, cy0 in candidates:
         x, y = _clamp_label(cx0, cy0)
-        r = (x, y, x + LBL_W, y + LBL_H)
+        r = (x, y, x + w, y + h)
         cost = sum(_overlap_area(r, t) for t in taken)
         if cost == 0:
             taken.append(r)
-            return d.vertex(value, x, y, LBL_W, LBL_H, ST_LBL)
+            return d.vertex(value, x, y, w, h, style)
         if best_cost is None or cost < best_cost:
             best, best_cost = r, cost
     taken.append(best)
-    return d.vertex(value, best[0], best[1], LBL_W, LBL_H, ST_LBL)
+    return d.vertex(value, best[0], best[1], w, h, style)
+
+
+def free_slot(px, py, bw, bh, taken, first=None, dists=(0, 26, 52, 84, 120, 165),
+              bounds=None):
+    """Nearest free spot for a box that marks its true position.
+
+    Wanted where a dense cluster would put two symbols on top of each other: the
+    box walks outwards and the caller draws a stub back to the real spot. With
+    `first` the walk starts on the side a DTC should hang off, which keeps the
+    sheet reading as taps on a line rather than a scatter of boxes.
+    """
+    angles = [0.0, -math.pi / 2, math.pi / 2, math.pi,
+              -math.pi / 4, math.pi / 4, -3 * math.pi / 4, 3 * math.pi / 4]
+    base = 0.0
+    if first:
+        n = math.hypot(first[0], first[1]) or 1.0
+        base = math.atan2(first[1] / n, first[0] / n)
+    ring = [(0.0, 0.0)]
+    for dist in dists[1:]:
+        for ang in angles:
+            ring.append((math.cos(base + ang) * dist, math.sin(base + ang) * dist))
+    fallback = None
+    for dx, dy in ring:
+        x, y = px + dx, py + dy
+        if bounds:
+            x = min(max(x, bounds[0] + bw / 2), bounds[2] - bw / 2)
+            y = min(max(y, bounds[1] + bh / 2), bounds[3] - bh / 2)
+        rect = (x - bw / 2, y - bh / 2, x + bw / 2, y + bh / 2)
+        if fallback is None:
+            fallback = rect
+        if not any(_overlaps(rect, t) for t in taken):
+            return x, y, rect
+    return fallback[0] + bw / 2, fallback[1] + bh / 2, fallback
 
 
 # ----------------------------------------------------------------------------
@@ -514,6 +899,12 @@ def _metres(lat, lon, lat0, lon0):
             (lat - lat0) * 110540.0)
 
 
+def _distance_m(a, b):
+    """Metres between two (lat, lon) pairs - short distances, flat earth."""
+    return math.hypot((a[0] - b[0]) * 110540.0,
+                      (a[1] - b[1]) * 111320.0 * math.cos(math.radians(a[0])))
+
+
 def prim(parent_of, pts, root=0):
     """Minimum spanning tree over the DTC points; returns parent indices."""
     n = len(pts)
@@ -591,15 +982,31 @@ def _project(px, py, ax, ay, bx, by):
 
 
 def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
-              extent="cluster", title_text=None, subtitle=None):
+              extent="cluster", title_text=None, subtitle=None, topo=None,
+              root_id=None, bends=None, spur_labels=None):
+    """One A3 sheet with every node at its surveyed position.
+
+    `topo` is the feeder's rows from the connection workbook, already merged
+    with the master (`topology_items`): that gives the parent links, the poles,
+    the GOS and the RMU. Without it the sheet falls back to a minimum spanning
+    tree over the DTC coordinates, which is a likeness, not a record.
+    """
     wb = Workbook()
     d = wb.page(label or "SLD")
 
-    good, bad, warn = clean_points(list(dtcs) + list(hts))
+    if topo:
+        items = list(topo)
+    else:
+        rmus = [dict(nd, code=nd["name"], type="RMU", kind="RMU", parent="", spur="",
+                     way="") for nd in rmus]
+        items = [dict(it, type=it.get("kind", "DTC"), parent="", spur="", way="")
+                 for it in list(dtcs) + list(hts) + rmus]
+
+    good, bad, warn = clean_points(items)
     for w in warn:
         print("  ! " + w)
     if len(good) < 2:
-        raise SystemExit("Not enough DTCs with GPS coordinates for a geographical layout.")
+        raise SystemExit("Not enough nodes with GPS coordinates for a geographical layout.")
 
     lat0 = sorted(p["lat"] for p in good)[len(good) // 2]
     lon0 = sorted(p["lon"] for p in good)[len(good) // 2]
@@ -608,13 +1015,24 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
 
     by_code = {p["code"]: p for p in good}
 
-    # ---- trunk geometry ----------------------------------------------------
+    # ---- who feeds whom ----------------------------------------------------
     trunk_pts = []       # surveyed polyline in metres, in drawing order
-    parent = [-1] * len(order)
-    root = None
+    links = {}           # code -> (parent code, why the link is a guess)
+    guessed = []
     if route:
         trunk_pts = [_metres(lat, lon, lat0, lon0) for _, lat, lon in route]
         print(f"  route       : {len(trunk_pts)} surveyed points")
+        if topo:
+            print(f"  note        : --route shapes the run; the workbook's parent "
+                  f"links and {len([i for i in items if i['type'] not in ('DTC', 'HT')])}"
+                  " non-DTC node(s) are drawn on it")
+    elif topo:
+        links = resolve_links(items, root_id, drawn=set(local))
+        guessed = sorted(c for c, (_, why) in links.items() if why)
+        if guessed:
+            print(f"  links       : {len(guessed)} guessed, drawn dashed - {', '.join(guessed)}")
+        for c in guessed:
+            print(f"  ! {c}: {links[c][1]}")
     else:
         pts = [local[c] for c in order]
         if muss:
@@ -623,17 +1041,30 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
                        key=lambda i: math.hypot(pts[i][0] - mx, pts[i][1] - my))
         else:
             root = tree_ends(prim([], pts))[0]
+        root_id = order[root]
         parent = prim([], pts, root)
+        for i, code in enumerate(order):
+            links[code] = (order[parent[i]] if parent[i] >= 0 else None, "")
 
     # ---- page transform ----------------------------------------------------
+    # The source stays out of the fit: on two of these feeders the MUSS is more
+    # than a kilometre from its own load, and pulling it in would shrink the
+    # network to nothing. It is placed on its own and labelled when it is out.
+    if muss is None and topo and root_id and root_id in by_code:
+        root = by_code[root_id]
+        if root.get("lat") is not None:
+            muss = (root["lat"], root["lon"])
+    net_codes = [c for c in order if (by_code[c].get("type") or "").upper() != "MUSS"]
+    net_codes = net_codes or order
+
     def fit(xs, ys):
         mnx, mxx = min(xs), max(xs)
         mny, mxy = min(ys), max(ys)
         sx, sy = max(mxx - mnx, 1e-6), max(mxy - mny, 1e-6)
         return mnx, mxx, mny, mxy, min(GEO_W / sx, GEO_H / sy, GEO_MAX_SCALE)
 
-    net_x = [local[c][0] for c in order]
-    net_y = [local[c][1] for c in order]
+    net_x = [local[c][0] for c in net_codes]
+    net_y = [local[c][1] for c in net_codes]
     if trunk_pts:
         net_x += [p[0] for p in trunk_pts]
         net_y += [p[1] for p in trunk_pts]
@@ -658,193 +1089,199 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
         x, y = xy
         return ox + (x - minx) * scale, oy + (maxy - y) * scale
 
-    cx_pg = sum(P(local[c])[0] for c in order) / len(order)
-    cy_pg = sum(P(local[c])[1] for c in order) / len(order)
+    cx_pg = sum(P(local[c])[0] for c in net_codes) / len(net_codes)
+    cy_pg = sum(P(local[c])[1] for c in net_codes) / len(net_codes)
     taken = []
 
-    # ---- trunk -------------------------------------------------------------
-    junctions = {}
-    route_ids = []
-    if trunk_pts:
-        for pt in trunk_pts:
-            jx, jy = P(pt)
-            route_ids.append(d.vertex("", jx - 1.5, jy - 1.5, 3, 3, ST_HIDDEN))
-        for a, b in zip(route_ids, route_ids[1:]):
-            d.edge(a, b, ST_GEO)
-    else:
-        for code in order:
-            jx, jy = P(local[code])
-            junctions[code] = d.vertex("", jx - 1.5, jy - 1.5, 3, 3, ST_HIDDEN)
-        for i, code in enumerate(order):
-            if parent[i] >= 0:
-                d.edge(junctions[order[parent[i]]], junctions[code], ST_GEO)
-
-    # ---- MUSS --------------------------------------------------------------
-    if trunk_pts:
-        anchor_id = route_ids[0] if route_ids else None
-        ref = trunk_pts[0]
-    else:
-        anchor_id = junctions.get(order[root]) if root is not None else None
-        ref = local[order[root]] if root is not None else local[order[0]]
-
-    # the MUSS box is drawn after the DTCs so it can be kept clear of them
-
-    # ---- DTC symbols, spurs and labels -------------------------------------
-    trunk_pg = [P(p) for p in trunk_pts]
-
-    for i, code in enumerate(order):
-        item = by_code[code]
+    # ---- where each node meets the line ------------------------------------
+    # The line runs between these points and follows the recorded bends. A symbol
+    # that had to move off a crowded spot is joined back to its own point by a
+    # short service tap - a DTC taps the line, it is not plastered onto it.
+    #
+    # A topology drawing's source is the MUSS row itself. When that box is drawn at
+    # the page edge for readability, its children hang off the drawn box and not off
+    # a point a kilometre past the paper - lines run off a printed page.
+    root_is_muss = bool(topo and root_id
+                        and (by_code.get(root_id, {}).get("type") or "").upper() == "MUSS")
+    tap, tap_id = {}, {}
+    for code in order:
         px, py = P(local[code])
+        tap[code] = (px, py)
+        if code == root_id and root_is_muss and off_map_muss:
+            continue                 # placed with the MUSS box, below
+        tap_id[code] = d.vertex("", px - 1.5, py - 1.5, 3, 3, ST_HIDDEN)
 
-        if trunk_pg:                       # surveyed route: use the local segment
-            best = None
-            for k in range(len(trunk_pg) - 1):
-                dist, ax, ay = _project(px, py, *trunk_pg[k], *trunk_pg[k + 1])
-                if best is None or dist < best[0]:
-                    best = (dist, ax, ay, k)
-            _, ax, ay, k = best
-            dx = trunk_pg[k + 1][0] - trunk_pg[k][0]
-            dy = trunk_pg[k + 1][1] - trunk_pg[k][1]
-            anchor_pt = (ax, ay)
-        else:                              # inferred tree: use the parent edge
-            p = parent[i]
-            if p >= 0:
-                ax, ay = P(local[order[p]])
-            else:
-                ax, ay = cx_pg, cy_pg
-            dx, dy = px - ax, py - ay
-            anchor_pt = (ax, ay)
-
+    def along(code):
+        """Unit vector from the parent towards the node - the line's direction."""
+        p = links.get(code, (None, ""))[0]
+        if p and p in tap:
+            dx, dy = tap[code][0] - tap[p][0], tap[code][1] - tap[p][1]
+        else:
+            dx, dy = tap[code][0] - cx_pg, tap[code][1] - cy_pg
         n = math.hypot(dx, dy) or 1.0
-        perp = (-dy / n, dx / n)
+        return dx / n, dy / n
+
+    # ---- equipment symbols -------------------------------------------------
+    symbols, moved = {}, set()
+    for code in order:
+        item = by_code[code]
+        px, py = tap[code]
+        kind = (item.get("type") or item.get("kind") or "NODE").upper()
+        if kind == "MUSS":
+            continue                  # the source is placed after the equipment
+        dx, dy = along(code)
+        perp = (-dy, dx)              # a DTC hangs off the side of the line
         if perp[0] * (px - cx_pg) + perp[1] * (py - cy_pg) < 0:
             perp = (-perp[0], -perp[1])
-        cx, cy = px + perp[0] * 30, py + perp[1] * 30
-        for _ in range(6):                 # separate DTCs sitting on the same spot
-            rect = (cx - DTC_W / 2, cy - DTC_H / 2, cx + DTC_W / 2, cy + DTC_H / 2)
-            if not any(_overlaps(rect, t) for t in taken):
-                break
-            cx += perp[0] * 26
-            cy += perp[1] * 26
-
-        is_ht = code.upper().startswith("HT-")
-        face = "HT" if is_ht else (str(item["kva"]) if item.get("kva") else "?")
-        sq = d.vertex(face, cx - DTC_W / 2, cy - DTC_H / 2, DTC_W, DTC_H,
-                      ST_HT if is_ht else ST_DTC)
-
-        anchor_id = junctions.get(code)
-        if anchor_id is None:
-            anchor_id = d.vertex("", anchor_pt[0] - 1.5, anchor_pt[1] - 1.5, 3, 3, ST_HIDDEN)
-        d.edge(anchor_id, sq, ST_STUB)
-
-        name = crop_name(item["name"])
-        if is_ht:
+        if kind in ("POLE", "JUNCTION", "FUSE", "LA", "NODE"):
+            symbols[code] = d.vertex("", px - 3, py - 3, 6, 6, ST_POLE)
+            taken.append((px - 3, py - 3, px + 3, py + 3))
+            place_label(d, px, py, code, taken, bw=6, bh=6, w=54, h=11, style=ST_TINY)
+            continue
+        if kind == "GOS":
+            # drawn on the line, so the sheet shows where the break really is
+            symbols[code] = d.vertex("", px - 15, py - 2, 30, 4, ST_GOS)
+            taken.append((px - 15, py - 6, px + 15, py + 6))
+            txt = f"<b>{code}</b><br>{crop_name(item['name'], 18)}"
+            place_label(d, px, py, txt, taken, bw=30, bh=4, w=104, h=24)
+            continue
+        if kind == "RMU":
+            bw, bh, style, face = 90, 24, ST_RMU, "RMU"
+            used = {o["way"] for o in items if o.get("parent") == code and o.get("way")}
+            txt = (f"<b>{crop_name(item['name'], 24)}</b><br>"
+                   f"<font style='font-size:7px'>{_rmu_ways_text(used, bool(topo))}</font>")
+        elif kind == "HT" or code.upper().startswith("HT-"):
+            bw, bh, style, face = DTC_W, DTC_H, ST_HT, "HT"
             tail = f" ({item['kva']} kVA)" if item.get("kva") else ""
-            txt = f"{name}<br><b>{code}</b>{tail}"
+            txt = f"{crop_name(item['name'])}<br><b>{code}</b>{tail}"
         else:
-            txt = f"{name}<br><b>{code}</b>"
-        taken.append((cx - DTC_W / 2, cy - DTC_H / 2, cx + DTC_W / 2, cy + DTC_H / 2))
-        place_label(d, cx, cy, txt, taken)
+            bw, bh, style = DTC_W, DTC_H, ST_DTC
+            face = str(item["kva"]) if item.get("kva") else "?"
+            txt = f"{crop_name(item['name'])}<br><b>{code}</b>"
+        bx, by, rect = free_slot(px, py, bw, bh, taken, first=perp)
+        symbols[code] = d.vertex(face, bx - bw / 2, by - bh / 2, bw, bh, style)
+        taken.append(rect)
+        if abs(bx - px) > 2 or abs(by - py) > 2:
+            moved.add(code)
+        place_label(d, bx, by, txt, taken, bw=bw, bh=bh)
 
-    # ---- RMUs from the NON DTC NODES sheet --------------------------------
-    for nd in rmus:
-        rx, ry = P(_metres(nd["lat"], nd["lon"], lat0, lon0))
-        rw, rh = 90, 24
-        bx, by = rx, ry
-        search = [(0.0, 0.0)]
-        for dist in (26, 52, 78, 110):
-            for step in range(8):
-                ang = step * math.pi / 4
-                search.append((math.cos(ang) * dist, math.sin(ang) * dist))
-        for ddx, ddy in search:
-            rect = (rx + ddx - rw / 2, ry + ddy - rh / 2,
-                    rx + ddx + rw / 2, ry + ddy + rh / 2)
-            if not any(_overlaps(rect, t) for t in taken):
-                bx, by = rx + ddx, ry + ddy
+    trunk_pg = [P(p) for p in trunk_pts]
+
+    # ---- the source ---------------------------------------------------------
+    # Placed after the equipment so it can be kept clear of it.
+    base = f"110/11 KV<br>{station.replace('110/11KV ', '') or 'MUSS'}"
+    if trunk_pts:                    # a surveyed route starts at the MUSS
+        where = trunk_pg[0]
+        anchor_id = d.vertex("", where[0] - 1.5, where[1] - 1.5, 3, 3, ST_HIDDEN)
+    else:
+        anchor_id = tap_id.get(root_id) if root_id else None
+        where = P(_metres(muss[0], muss[1], lat0, lon0)) if muss else None
+    box = None
+    if where is None:
+        # nothing records where the source is: hang it off the network, and say so
+        ax, ay = tap.get(root_id, (cx_pg, cy_pg))
+        vx, vy = ax - cx_pg, ay - cy_pg
+        nv = math.hypot(vx, vy) or 1.0
+        base_ang = math.atan2(vy / nv, vx / nv)
+        for dist in (74, 112, 152, 200, 258, 320):
+            for step in (0, 1, -1, 2, -2, 3, -3, 4):
+                ang = base_ang + step * math.pi / 8
+                mx = min(max(ax + math.cos(ang) * dist, MUSS_W / 2 + 20),
+                         PAGE_W - MUSS_W / 2 - 20)
+                my = min(max(ay + math.sin(ang) * dist, 130 + MUSS_H / 2 + 8),
+                         TABLE_TOP - 96)
+                r = (mx - MUSS_W / 2, my - MUSS_H / 2,
+                     mx + MUSS_W / 2, my + MUSS_H / 2 + 8)
+                if box is None:
+                    box = r
+                if not any(_overlaps(r, t) for t in taken):
+                    box = r
+                    break
+            if not any(_overlaps(box, t) for t in taken):
                 break
-        node = d.vertex("RMU", bx - rw / 2, by - rh / 2, rw, rh, ST_RMU)
-        if trunk_pg:
-            best = None
-            for k in range(len(trunk_pg) - 1):
-                dist, ax, ay = _project(rx, ry, *trunk_pg[k], *trunk_pg[k + 1])
-                if best is None or dist < best[0]:
-                    best = (dist, ax, ay)
-            _, ax, ay = best
-        else:
-            ax, ay = min((P(local[c]) for c in order),
-                         key=lambda q: math.hypot(q[0] - rx, q[1] - ry))
-        a_id = d.vertex("", ax - 1.5, ay - 1.5, 3, 3, ST_HIDDEN)
-        d.edge(a_id, node, ST_STUB)
-        taken.append((bx - rw / 2, by - rh / 2, bx + rw / 2, by + rh / 2))
-        place_label(d, bx, by, f"<b>{nd['name']}</b><br>5-way", taken, bw=rw, bh=rh)
-
-    # ---- MUSS --------------------------------------------------------------
-    if anchor_id:
-        base = (f"110/11 KV<br>{station.replace('110/11KV ', '') or 'MUSS'}")
-        if muss and off_map_muss:
-            bx, by = P(_metres(muss[0], muss[1], lat0, lon0))
-            bx = min(max(bx, GEO_X + MUSS_W / 2 + 6), GEO_X + GEO_W - MUSS_W / 2 - 6)
-            by = min(max(by, GEO_Y + MUSS_H / 2 + 6), GEO_Y + GEO_H - MUSS_H / 2 - 6)
+        base += "<br><font style='font-size:7px'>(position approx.)</font>"
+    else:
+        mx, my = where
+        if off_map_muss:
+            # the substation is kilometres from the load: keep the network readable and
+            # say so, rather than shrinking the drawing to fit one point off the page
+            mx = min(max(mx, GEO_X + MUSS_W / 2 + 6), GEO_X + GEO_W - MUSS_W / 2 - 6)
+            my = min(max(my, GEO_Y + MUSS_H / 2 + 6), GEO_Y + GEO_H - MUSS_H / 2 - 6)
             mxm, mym = _metres(muss[0], muss[1], lat0, lon0)
             km = math.hypot(mxm - sum(net_x) / len(net_x),
                             mym - sum(net_y) / len(net_y)) / 1000
             base += (f"<br><font style='font-size:7px'>({km:.1f} km beyond the edge, "
                      f"not to scale)</font>")
-            box = (bx - MUSS_W / 2, by - MUSS_H / 2, bx + MUSS_W / 2, by + MUSS_H / 2 + 8)
-        elif muss:
-            mx, my = P(_metres(muss[0], muss[1], lat0, lon0))
-            box = (mx - MUSS_W / 2, my - MUSS_H / 2, mx + MUSS_W / 2, my + MUSS_H / 2)
-            cand = [(0.0, 0.0)]
-            for dist in (36, 72, 110, 150, 200):
-                for step in range(8):
-                    ang = step * math.pi / 4
-                    cand.append((math.cos(ang) * dist, math.sin(ang) * dist))
-            for dx, dy in cand:
-                cx0 = min(max(mx + dx, MUSS_W / 2 + 20), PAGE_W - MUSS_W / 2 - 20)
-                cy0 = min(max(my + dy, 130 + MUSS_H / 2), TABLE_TOP - 96)
-                r = (cx0 - MUSS_W / 2, cy0 - MUSS_H / 2,
-                     cx0 + MUSS_W / 2, cy0 + MUSS_H / 2 + 8)
-                if not any(_overlaps(r, t) for t in taken):
-                    box = r
-                    break
-        else:
-            ax, ay = P(ref)
-            vx, vy = ax - cx_pg, ay - cy_pg
-            nv = math.hypot(vx, vy) or 1.0
-            base_ang = math.atan2(vy / nv, vx / nv)
-            box = None
-            for dist in (74, 112, 152, 200, 258, 320):
-                for step in (0, 1, -1, 2, -2, 3, -3, 4):
-                    ang = base_ang + step * math.pi / 8
-                    mx = min(max(ax + math.cos(ang) * dist, MUSS_W / 2 + 20),
-                             PAGE_W - MUSS_W / 2 - 20)
-                    my = min(max(ay + math.sin(ang) * dist, 130 + MUSS_H / 2 + 8),
-                             TABLE_TOP - 96)
-                    r = (mx - MUSS_W / 2, my - MUSS_H / 2,
-                         mx + MUSS_W / 2, my + MUSS_H / 2 + 8)
-                    if box is None:
-                        box = r
-                    if not any(_overlaps(r, t) for t in taken):
-                        box = r
-                        break
-                if not any(_overlaps(box, t) for t in taken):
-                    break
-            base += "<br><font style='font-size:7px'>(position approx.)</font>"
-        m_id = d.vertex(base, box[0], box[1], MUSS_W, MUSS_H + 8, ST_MUSS)
+        _, _, box = free_slot(mx, my, MUSS_W, MUSS_H + 8, taken,
+                              dists=(0, 36, 72, 110, 150, 200),
+                              bounds=(20, 130, PAGE_W - 20, TABLE_TOP - 96))
+    if root_is_muss and off_map_muss:
+        tap[root_id] = (box[0] + MUSS_W / 2, box[1] + (MUSS_H + 8) / 2)
+        tap_id[root_id] = d.vertex("", tap[root_id][0] - 1.5, tap[root_id][1] - 1.5,
+                                  3, 3, ST_HIDDEN)
+    m_id = d.vertex(base, box[0], box[1], MUSS_W, MUSS_H + 8, ST_MUSS)
+    taken.append(box)
+    if anchor_id and not (root_is_muss and off_map_muss):
         d.edge(m_id, anchor_id, ST_DASH if off_map_muss else ST_TRUNK)
-        taken.append(box)
+
+    # ---- the network --------------------------------------------------------
+    # Drawn last, so a tap lands on its symbol: the trunk heavy, laterals lighter,
+    # anything guessed dashed.
+    if trunk_pts:
+        route_ids = []
+        for pt in trunk_pg:
+            route_ids.append(d.vertex("", pt[0] - 1.5, pt[1] - 1.5, 3, 3, ST_HIDDEN))
+        for a, b in zip(route_ids, route_ids[1:]):
+            d.edge(a, b, ST_GEO)
+    for code in order:
+        item = by_code[code]
+        parent_code, why = links.get(code, (None, ""))
+        if trunk_pts:                # surveyed route: tap the nearest point on it
+            px, py = tap[code]
+            best = None
+            for k in range(len(trunk_pg) - 1):
+                dist, ax, ay = _project(px, py, *trunk_pg[k], *trunk_pg[k + 1])
+                if best is None or dist < best[0]:
+                    best = (dist, ax, ay)
+            _, ax, ay = best
+            a_id = d.vertex("", ax - 1.5, ay - 1.5, 3, 3, ST_HIDDEN)
+            if code in symbols:
+                d.edge(a_id, symbols[code], ST_STUB)
+            continue
+        if not parent_code or parent_code not in tap_id or code not in symbols:
+            continue
+        spur = (item.get("spur") or "T").upper()
+        style = ST_GUESS if why else (ST_TRUNK if spur == "T" else ST_GEO)
+        corners = [P(_metres(lat, lon, lat0, lon0))
+                   for _, lat, lon in (bends or {}).get((parent_code, code), [])]
+        d.edge(tap_id[parent_code], tap_id[code], style, points=corners or None)
+        if code in moved:
+            d.edge(tap_id[code], symbols[code], ST_STUB)
+        # a lateral is named at the point it leaves the trunk, once SPURS names it
+        spur_tag = (spur_labels or {}).get(spur)
+        if (spur_tag and spur and spur != "T"
+                and (by_code.get(parent_code, {}).get("spur") or "T").upper() != spur):
+            place_label(d, (tap[parent_code][0] + tap[code][0]) / 2,
+                        (tap[parent_code][1] + tap[code][1]) / 2,
+                        f"<b>{spur}</b> {spur_tag}", taken, bw=8, bh=8, w=110, h=11,
+                        style=ST_TINY)
 
     # ---- furniture ---------------------------------------------------------
+    source = ("surveyed route" if trunk_pts else
+              ("connection workbook" if topo else "inferred trunk"))
+    if guessed:
+        source += f", {len(guessed)} link(s) guessed"
     unpositioned_block(d, bad)
     scale_bar(d, scale)
     summary_table(d, dtcs)
     sheet_header(d, title_text or
                  f"SINGLE LINE DIAGRAM OF {label.upper()} in Unit-4, CSD-2, SMG",
-                 subtitle or (f"{station}  MUSS   |   geographical layout from GPS in the master"
-                              f"   |   {'surveyed route' if route else 'inferred trunk'}"
+                 subtitle or (f"{station}  MUSS   |   geographical layout from GPS"
+                              f"   |   {source}"
+                              f"   |   {len(order)} of {len(items)} nodes placed"
                               f"   |   {date.today():%d-%m-%Y}"))
-    return wb, dict(scale=scale, per_row=None, rows=None,
-                    positioned=len(good), unpositioned=len(bad))
+    return wb, dict(scale=scale, per_row=None, rows=None, source=source,
+                    positioned=len(order), unpositioned=len(bad), guessed=len(guessed))
 
 
 # ----------------------------------------------------------------------------
@@ -1492,11 +1929,15 @@ def main():
     ap.add_argument("--out", help="output .drawio path (overrides --outdir)")
     ap.add_argument("--outdir", help="folder for generated .drawio files (default: outputs/<today>)")
     ap.add_argument("--preview", action="store_true", help="also write a PNG preview")
-    ap.add_argument("--geo", action="store_true", help="place DTCs at their GPS positions")
+    ap.add_argument("--geo", action="store_true",
+                    help="place every node at its GPS position, connected as the workbook records")
     ap.add_argument("--muss", help='substation coordinates "lat,lon" for the geo layout')
     ap.add_argument("--extent", choices=["cluster", "all"], default="cluster",
                     help="geo layout extent: fit the DTC network (default) or include the MUSS")
     ap.add_argument("--route", help="surveyed pole coordinates (csv/xlsx: NODE_ID,LAT,LONG)")
+    ap.add_argument("--topology", help=f"connection workbook (default: {_display(TOPOLOGY_DEFAULT)})")
+    ap.add_argument("--no-topology", action="store_true",
+                    help="ignore the connection workbook and infer the trunk again")
     ap.add_argument("--template", action="store_true",
                     help="write the blank A3 sheet + symbol library to template/")
     ap.add_argument("--topology-template", action="store_true",
@@ -1542,8 +1983,11 @@ def main():
     rmus = [n for n in nodes
             if n["kind"] == "RMU" and _norm(n.get("feeder", "")) == _norm(args.feeder or "")]
 
+    topo = None if args.no_topology else read_topology(args.topology or TOPOLOGY_DEFAULT)
+    if args.topology and topo is None:
+        raise SystemExit(f"Topology workbook not found: {args.topology}")
+
     if args.list or not args.feeder:
-        from collections import Counter
         cnt = Counter(it["feeder"] for it in dtcs)
         print("Feeders in the master:")
         for f, c in cnt.items():
@@ -1553,6 +1997,13 @@ def main():
             print("\nNon-DTC nodes (sheet '%s'):" % SHEET_NODES)
             for n in nodes:
                 print(f"  {n['kind']:<5} {n['name']:<28} {n['lat']:.6f}, {n['lon']:.6f}")
+        if topo:
+            print(f"\nConnections (writer '{_display(topo['path'])}'):")
+            for f in cnt:
+                rows = [n for n in topo["nodes"] if _norm(n["feeder"]) == _norm(f)]
+                basis = Counter(n["basis"] or "UNKNOWN" for n in rows)
+                seen = ", ".join(f"{k} {v}" for k, v in basis.most_common())
+                print(f"  {f:<14} {len(rows):>3} rows  ({seen})")
         if not args.feeder:
             print('\nNow run e.g.:  python sld_generator.py --feeder "Mandli F13" --geo')
         return
@@ -1584,9 +2035,43 @@ def main():
     if args.route and not route:
         raise SystemExit(f"No usable LAT/LONG rows found in {args.route}")
 
+    # ---- the connection workbook -------------------------------------------
+    items, root_id, ways, bends, spur_labels = None, None, None, None, None
+    if args.geo and topo:
+        sel_topo = topology_for_feeder(topo, args.feeder, station)
+        if sel_topo:
+            errs, warns = validate_topology(sel_topo, topo,
+                                            {it["code"].upper() for it in dtcs + hts})
+            for w in warns:
+                print(f"  ! {w}")
+            if errs:
+                raise SystemExit(
+                    f"{_display(topo['path'])} disagrees with itself - nothing was drawn:\n  "
+                    + "\n  ".join(errs)
+                    + "\nFix those rows; a drawing must not contradict the record.")
+            items, only_master, moved = topology_items(sel, sel_ht, sel_topo, rmus)
+            for m in moved:
+                print(f"  ! {m}")
+            if only_master:
+                print(f"  ! {', '.join(only_master)}: not in the workbook - drawn from the "
+                      "master with a guessed parent")
+            root = topology_root(sel_topo, station)
+            root_id = root["id"] if root else None
+            bends = topo["bends"]
+            spur_labels = {sid: lab for (f, sid), lab in topo["spurs"].items()
+                           if _norm(f) == _norm(args.feeder)}
+            kind_count = Counter(i["type"] for i in items)
+            print(f"  topology    : {_display(topo['path'])}  |  "
+                  + ", ".join(f"{v} {k}" for k, v in sorted(kind_count.items())))
+            if muss is None and root and root["lat"] is not None:
+                muss = (root["lat"], root["lon"])
+                print(f"  muss        : {muss[0]:.6f}, {muss[1]:.6f}  (row {root['id']})")
+
     if args.geo:
         wb, info = build_geo(sel, sel_ht, label, station, muss=muss, route=route,
-                             rmus=rmus, extent=args.extent, title_text=args.title)
+                             rmus=rmus, extent=args.extent, title_text=args.title,
+                             topo=items, root_id=root_id, bends=bends,
+                             spur_labels=spur_labels)
     else:
         wb, info = build_schematic(sel, sel_ht, label, station, rmus=rmus,
                                    title_text=args.title)
@@ -1603,8 +2088,9 @@ def main():
 
     print(f"  feeder      : {label}  ({len(sel)} DTCs, {len(sel_ht)} HT services)")
     if args.geo:
-        print(f"  layout      : geo  |  {info['positioned']} positioned, "
+        print(f"  layout      : geo  |  {info['positioned']} nodes placed, "
               f"{info['unpositioned']} unpositioned  |  1 m = {info['scale']:.2f} px")
+        print(f"  source      : {info['source']}")
     else:
         print(f"  layout      : schematic  |  {info['per_row']} per lateral x {info['rows']} laterals")
     print(f"  written     : {_display(out)}")

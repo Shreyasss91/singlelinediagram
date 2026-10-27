@@ -1,12 +1,97 @@
 # Changelog — MESCOM SLD tool
 
-Every change made in the session of **26 October 2026**, newest entry on top.
+Every change made in the session of **26–27 October 2026**, newest entry on top.
 This covers the whole arc: reading the two Word documents, choosing the tool, and building the
 generator up to its current state.
 
 ---
 
-## 2026-10-26 · Newest — `TOPOLOGY_DATA_REQUIREMENTS.md` joins `docs\`
+## 2026-10-27 · Newest — the geographical sheet is drawn from the connection workbook
+
+The `--geo` layout stops inferring the tree. It now reads `field_data/TOPOLOGY.xlsx` and draws what
+the record says: parent links, poles, the GOS, the RMU and its ways.
+
+This came from a report on `--feeder "Mandli F13" --geo`: **the RMU, `GOS-01` and `P-001` were not
+on the sheet at all**, and `SCD-10` — whose `PARENT_ID` is `SCD-36` — appeared to be fed from both
+`SCD-36` and `SCD-11`. Both symptoms had the same cause: `build_geo()` did not read the workbook, so
+it could only draw the 19 DTCs the master holds and had to guess the links between them.
+
+### Added
+- **`read_topology(path)`** — reads `NODES`, `RMU WAYS`, `BENDS` and `SPURS` from the connection
+  workbook, with the row number kept so every message can name it.
+- **`topology_for_feeder(topo, feeder, station)`** — the rows one feeder draws: its own rows, the
+  MUSS above them, and any row whose `FEEDER` cell is blank but hangs under one of them. Taking the
+  subtree is what stops a feeder from picking up another one's network.
+- **`validate_topology(sel, topo, master_codes)`** — the checks from
+  `docs/TOPOLOGY_DATA_REQUIREMENTS.md` §13. Structural errors (duplicate `NODE_ID`, a `PARENT_ID`
+  that is not a row, a loop, a bad `WAY`, two cables on one RMU terminal) stop the run and name the
+  row; everything else is printed and the sheet is still drawn.
+- **`topology_items(...)`** — merges the workbook with the register: the master owns a DTC's name,
+  rating and GPS, the workbook owns the equipment and the parents. A DTC or RMU that only the master
+  knows about is still drawn, with its parent guessed and listed.
+- **`resolve_links(items, root_id, drawn)`** — the link to draw for every node, plus the reason when
+  it is a guess: a parent with no coordinates sends the line to the nearest ancestor that has them,
+  and a node with no usable ancestor is hung off the nearest node that is not downstream of it.
+- **Symbols per `TYPE`** — `POLE`/`JUNCTION` as a dot carrying its code, `GOS` as a bar sitting *on*
+  the line, `RMU` as a box naming the ways its cables arrive on, `MUSS`/`DTC`/`HT` as before,
+  `NODE` as a fallback square.
+- **`BENDS` are drawn** — a span with bend rows is routed through them (`<Array as="points">`), so a
+  run can follow a road corner instead of cutting across a block.
+- **Spur tags** — when `SPURS!LABEL` names a lateral, `<b>S1</b> Chor Bazar lateral` is printed where
+  that lateral leaves the trunk.
+- **`--topology <file>`** and **`--no-topology`** — point at another copy of the workbook, or go back
+  to the inferred trunk for one run.
+- **`--list` reports connection coverage** — rows per feeder, split by `BASIS` (`INFERRED` /
+  `UNKNOWN` / `SOURCE`), so it is obvious which feeder is still a draft.
+- **`free_slot(...)`** — one placement helper for every boxed symbol, walking outwards from the
+true position, perpendicular-first for a DTC so the sheet still reads as taps on a line. Replaces
+  the per-symbol search loops.
+
+### Changed
+- **The trunk is no longer an MST when the workbook has rows for the feeder.** Each node is joined to
+  its `PARENT_ID`, the trunk (`SPUR_ID = T`) is drawn heavier than a lateral, and a guessed link is
+  drawn **dashed** with the reason printed.
+- **`build_geo()` draws symbols first and lines last**, between the nodes' own positions: the line
+  marks where equipment is, and a symbol that had to move off a crowded spot is joined back to it by
+  a service tap.
+- **The MUSS is a node, not a special case.** In a topology run the root row is the source: its
+  children hang off its box, and when it is drawn off the page edge for readability those lines no
+  longer run past the paper (they start at the box).
+- **`unpositioned_block()`** now names the parent each unplaced node hangs off.
+- **`--route` still overrides the trunk shape** — a surveyed pole list beats a recorded tree — and
+  the run says so; the workbook's non-DTC equipment is still drawn on it.
+
+### Fixed
+- **Nodes missing from the sheet** — the RMU, the GOS and the poles are drawn because they are now
+  read from the workbook instead of from the master's two-row `NON DTC NODES` sheet.
+- **A line drawn from the wrong parent** — `SCD-10` is drawn to `SCD-36` because that is its
+  `PARENT_ID`; the tool no longer connects it to whatever was geometrically nearest.
+- **`label` clobbered by a spur label** in `build_geo()`, which printed the spur name as the sheet
+  title (`SINGLE LINE DIAGRAM OF MAIN LINE FROM MUSS`).
+- **`Counter` used before its local import** in `main()` when `--list` was not the path taken.
+- **Every DTC in the master reported as "not in the workbook"** — the merge compared against all
+  feeders instead of the one being drawn.
+- **A rejected coordinate could still pull a link**: `SCD-68` was being attached to `MUSS-MRS` in the
+  link list although the outlier check had already dropped it.
+
+### Regenerated
+- All eight sheets in `outputs\2026-10-27\` — four geographical (now from the workbook) and four
+  schematic (unchanged layout), plus `template/MESCOM_SLD_TEMPLATE.drawio`. All parse clean:
+  0 dangling connectors, 0 shapes off the A3 page.
+
+### Notes
+- **The workbook was not edited.** `field_data/TOPOLOGY.xlsx` needs one cell changed by hand:
+  `RMU WAYS!D14` for `RMU-RAMANNA-SHETTY-PARK`/`VL1` says `N` while `P-001` leaves by that way. The
+  drawing follows `NODES` and prints the mismatch; the register row is the stale one.
+- Three RMUs still have no `PARENT_ID` (`RMU-KOTE-ROAD`, `RMU-GANGOTHTI-COLLEGE`,
+  `RMU-RAMANNA-SHETTY-PARK`), so each is attached to the nearest node and drawn dashed.
+- A five-way RMU is still one symbol with the cabled ways named under it; five drawn terminals are
+  not part of this change.
+- An unfinished workbook remains usable: unfinished rows are guessed, dashed and listed.
+
+---
+
+## 2026-10-26 — `TOPOLOGY_DATA_REQUIREMENTS.md` joins `docs\`
 
 The last document at the root moved into `docs\`. The manual, the history, the handoff and the field
 specification now sit in one place.

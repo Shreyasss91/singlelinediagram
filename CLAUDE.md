@@ -14,13 +14,16 @@ safety-relevant error on a distribution drawing, not a cosmetic one.
 ## Commands
 
 ```powershell
-python sld_generator.py --list                                          # feeders, DTC counts, GPS coverage
+python sld_generator.py --list                                          # feeders, DTC/GPS/connection coverage
 python sld_generator.py --feeder "MRS F1" --name "MRS F1"               # schematic sheet
-python sld_generator.py --feeder "MRS F1" --name "MRS F1" --geo         # geographical sheet
+python sld_generator.py --feeder "MRS F1" --name "MRS F1" --geo         # geographical sheet, drawn from the workbook
 python sld_generator.py --feeder "MRS F1" --name "MRS F1" --geo --preview
+python sld_generator.py --feeder "MRS F1" --geo --no-topology           # back to the inferred trunk
+python sld_generator.py --feeder "MRS F1" --geo --topology other.xlsx
 python sld_generator.py --feeder "MRS F1" --route template\route_template.csv
 python sld_generator.py --template                                      # rewrite the blank drawio template
-python sld_generator.py --topology-template --force                     # rebuild the topology workbook
+python sld_generator.py --topology-template --out "%TEMP%\tt.xlsx"      # rebuild the topology workbook, not in place
+python sld_generator.py --topology-template --force                     # ... over the shipped blank
 ```
 
 Output goes to `outputs\<YYYY-MM-DD>\`, one folder per run day, `--outdir` / `--out` to override.
@@ -33,8 +36,8 @@ test suite.
 
 ```
 sld_generator.py                 the whole tool (~1600 lines, no packages)
-field_data/DTC DETAILS U4.xlsx   the master workbook - the only data source
-field_data/TOPOLOGY.xlsx         your filled-in connection workbook (not read yet)
+field_data/DTC DETAILS U4.xlsx   the master workbook - the register of record
+field_data/TOPOLOGY.xlsx         your filled-in connection workbook - read by --geo, never written by the tool
 docs/README.md                   the user manual
 docs/CHANGELOG.md                newest entry on top, dated
 docs/SESSION_HANDOFF.md          state of play, updated at the end of a work session
@@ -53,14 +56,21 @@ outputs/<date>/                  generated .drawio + PNG (ignored)
 1. **Constants** — column letters for the master sheets (`SHEET_ALL`, `SHEET_HT`, `SHEET_NODES`),
    page geometry (`PAGE_W, PAGE_H = 1654, 1169`, A3 landscape in draw.io units), layout constants,
    and one `ST_*` string per draw.io style. Add a style here, never inline one.
-2. **Readers** — `read_master()` pulls DTCs/HT/non-DTC nodes from the workbook by hard-coded column
+2. **Readers** — `read_master()` pulls DTCs/HT/non-DTC nodes from the master by hard-coded column
    letter; `read_route()` reads the optional pole CSV/XLSX; `assign_nodes_to_feeders()` gives each
-   RMU/MUSS its feeder from the nearest DTC.
+   RMU/MUSS its feeder from the nearest DTC. The connection workbook has its own reader set:
+   `read_topology()` (NODES / RMU WAYS / BENDS / SPURS, keeping the row number for messages),
+   `topology_for_feeder()` (the subtree this feeder draws), `validate_topology()` (structural checks),
+   `topology_items()` (merge with the register) and `resolve_links()` (link per node, with the reason
+   when it is a guess).
 3. **Model** — `Page` and `Workbook` emit the `mxCell` XML. `Workbook.to_xml()` is the only writer.
 4. **Furniture** — `sheet_header`, `summary_table`, `unpositioned_block`, `scale_bar`, label
    placement helpers. Shared by both layouts.
-5. **Layouts** — `build_schematic()` (grid, fixed) and `build_geo()` (projection + MST or `--route`).
-   Both return `(Workbook, info)`; `info` feeds the console summary.
+5. **Layouts** — `build_schematic()` (grid, fixed, DTC/HT/RMU only) and `build_geo()` (projection, then
+   either the workbook's parent links or an MST or `--route`). Both return `(Workbook, info)`; `info`
+   feeds the console summary. `build_geo()` order matters: page transform, then one tap point per
+   node, then the symbols (which may move off a crowded spot), then the MUSS box, then the lines — so
+   a line meets the position the survey recorded, not the box that had to be moved.
 6. **Template builders** — `build_template()` writes the drawio template; `build_topology_template()`
    writes the workbook, with `_infer_topology()` (Prim's MST rooted at the MUSS, then the longest path
    from the MUSS becomes `SPUR_ID = T` and each branch off it becomes `S1`, `S2`, …) and `_node_id()`.
@@ -85,6 +95,19 @@ VL2, VL3 (OUT)`. The RMU is one `NODES` row whose own `PARENT_ID` *is* way `ODin
 their exit way in `NODES!WAY` (`ODout`/`VL1`–`VL3`, never `ODin`). Only `ODin` is always connected;
 any outgoing way, `ODout` included, may be empty — `CONNECTED = N` with a blank `NORMALLY`.
 `_way_cabled()` is the only place that decision is made.
+
+**NODES is the tree, RMU WAYS is a register.** When the two disagree the drawing follows `NODES` —
+a child parented to an RMU is drawn on the way it names — and the register row is reported. Do not
+invert this: the connections are the record a sheet is signed against.
+
+**Errors stop, warnings do not.** `validate_topology()` returns both: a duplicate `NODE_ID`, a
+`PARENT_ID` that is not a row, a loop, a bad `WAY` and two cables on one terminal are errors and
+raise `SystemExit` from `main()`; everything else is printed and the sheet is still produced. Keep
+that split — an unfinished workbook must still draw, and a contradiction must not.
+
+**One source per fact.** Positions and ratings come from the master for a DTC/HT (the register);
+everything else — poles, GOS, RMU, parents, ways, bends — comes from the connection workbook. A DTC
+that only the master holds is still drawn, with a guessed parent, and listed.
 
 **Workbook sheets and ranges.** `NODES` is A-O; `RMU WAYS` is A-G with `CONNECTED` in `D`; `LISTS`
 feeds the dropdowns (`WAY_ALL` E, `WAY_CHILD` F, `DIRECTION` G, `YES_NO` H). Changing a column means
@@ -113,12 +136,16 @@ There is no test suite, so verify with the tool itself and say what you ran.
 ```powershell
 python sld_generator.py --list                                     # data still parses
 python sld_generator.py --feeder "MRS F1" --geo --preview --outdir "$env:TEMP\sldcheck"
+python sld_generator.py --feeder "Mandli F13" --geo --no-topology  # the MST path still works
 python sld_generator.py --feeder "Mandli F13"                      # schematic path too
+python sld_generator.py --feeder "MRS F1" --geo --route template\route_template.csv
 ```
 
 Then:
 
 - open the PNG (or read it) and check placement, labels, the summary table and the `UNPOSITIONED` box;
+- check the drawing against the workbook: every row of the feeder that has coordinates should have a
+  symbol, and each line should join a node to its `PARENT_ID`;
 - confirm the `.drawio` parses:
   `python -c "import xml.etree.ElementTree as ET; ET.parse(r'...\file.drawio'); print('ok')"`
 - for workbook changes, re-read it with openpyxl and assert the shape you intended: headers,
@@ -136,9 +163,15 @@ Verification scripts are throwaway — put them in the temp folder, not the repo
 - **`--topology-template` refuses to overwrite** without `--force`, deliberately. The blank template
   belongs in `template/`; the file you fill in is `field_data/TOPOLOGY.xlsx`, so `--force` should
   never touch field work. If someone has been editing the template in place, say so before rebuilding.
-- **`build_geo()` does not read the topology workbook.** Trunk shape comes from the MST or `--route`
-  only. `template/TOPOLOGY TEMPLATE.xlsx` is an agreed collection format awaiting its reader — do not
-  pretend it is wired in. The RMU symbol says `5-way` but does not draw five terminals.
+- **The connection workbook is read, never written.** `--topology-template --force` rewrites only
+  `template/TOPOLOGY TEMPLATE.xlsx`; `field_data/TOPOLOGY.xlsx` is field work. If a stray cell there
+  is wrong, say so — do not correct it for the user.
+- **`field_data/TOPOLOGY.xlsx` has a stale register row.** `RMU WAYS!D14`
+  (`RMU-RAMANNA-SHETTY-PARK` / `VL1`) says `N` while `P-001` leaves by `VL1`, so every F13 run prints
+  the warning. That is the workbook, not the code. Compare with the file's own `git diff` before
+  blaming the reader.
+- **A five-way RMU is one symbol, not five terminals.** The box names the ways its cables arrive on
+  (`5-way - out VL1`); drawing the five ways as separate stubs has not been done.
 - **Line endings.** Git reports `LF will be replaced by CRLF` on this Windows checkout. Expected;
   leave it alone.
 - **This repository is public.** The master already contains real DTC names, meter numbers, GPS and
@@ -179,5 +212,9 @@ step separately. **Do not push unless the user asks.**
 ## Current state
 
 Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`), two layouts, `--route`,
-both templates, docs. Next code step: read the topology workbook in `build_geo()` and draw each RMU
-way as cabled or empty. Known limitation list is `docs/README.md` §11 — keep it honest as work lands.
+both templates, docs, and **the `--geo` layout drawn from the connection workbook** — parent links,
+poles, GOS, RMU with its cabled ways named, `BENDS` shaping a span, spur tags from `SPURS!LABEL`, and
+validation that separates errors from warnings. Known limitation list is `docs/README.md` §11 — keep
+it honest as work lands. Next candidates, in the order the data will pay for itself: RMU `PARENT_ID`
+rows (three still guessed), five drawn RMU terminals, poles for the remaining feeders, and the same
+connection tree on the schematic layout so both sheets agree.
