@@ -6,7 +6,47 @@ generator up to its current state.
 
 ---
 
-## 2026-10-27 · Newest — the geographical sheet is drawn from the connection workbook
+## 2026-10-27 · Newest — runs routed at right angles, corners rounded
+
+The geographical sheet stopped drawing diagonals between taps. Requested after the first workbook-
+driven sheets: *"it need not always be a direct straight line, you can make use of horizontal,
+vertical lines, curve at edge so that the diagram looks pretty."*
+
+### Added
+- **`ortho_route(a, b, radius, min_run)`** — waypoints for a run that leaves on the axis with the
+  larger gap, turns at the midpoint and arrives square. Under `min_run` (70 px) it returns nothing, so
+  a short tap stays a straight line instead of growing a meaningless little jog.
+- **`_chamfer(pts, radius)`** — cuts the corner of a right-angle polyline back into a short diagonal.
+  draw.io does not round the corners of an explicit point list, so the curve has to be in the points:
+  it shows in draw.io *and* in the `--preview` PNG, which the two can only agree on if the shape is
+  the tool's rather than the renderer's.
+
+### Changed
+- **Every node-to-node run, and the edge from the MUSS box**, is now routed by `ortho_route`. A span
+  with `BENDS` rows keeps its recorded shape, with its corners chamfered at 10 px.
+- **A DTC or HT service hangs beside the line, not on it.** Symbols are placed 26 px off the run
+  along the perpendicular from the parent and joined by a service tap; poles, the GOS and the RMU
+  stay on the line, because they sit in the run. This is what stops an orthogonal route from crossing
+  a transformer box — the failure `docs/TOPOLOGY_DATA_REQUIREMENTS.md` §2 lists as "spur through a
+  symbol".
+
+### Fixed
+- **A `BENDS` row on a span fed from an off-map MUSS dragged the line past the paper.** Bends between
+  the substation and the network are now ignored: that span is labelled `not to scale`, so its shape
+  is not drawn from coordinates 1.7 km outside the fit. Found by testing bends on exactly that span.
+
+### Regenerated
+- Regenerated after this change: `outputs\2026-10-27\` (all four geographical sheets).
+
+### Notes
+- Routing is a drawing convention, not a survey: the run turns where it is convenient to read, which
+  is why the sheet still carries a scale bar and the `BENDS` sheet remains the way to record the real
+  road. A link shorter than 70 px is left straight on purpose.
+- The schematic layout is untouched — it is orthogonal by construction.
+
+---
+
+## 2026-10-27 — the geographical sheet is drawn from the connection workbook
 
 The `--geo` layout stops inferring the tree. It now reads `field_data/TOPOLOGY.xlsx` and draws what
 the record says: parent links, poles, the GOS, the RMU and its ways.

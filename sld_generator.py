@@ -973,6 +973,48 @@ def read_route(path):
     return pts
 
 
+def _chamfer(pts, radius=12.0):
+    """Cut the corners of a right-angle polyline so they read as curves.
+
+    draw.io draws the points it is given; there is no corner rounding on an
+    explicit polyline, so the corner of a run is replaced by a short diagonal.
+    """
+    if len(pts) < 3:
+        return list(pts)
+    out = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        p, q, s = pts[i - 1], pts[i], pts[i + 1]
+        d1 = math.dist(p, q) or 1.0
+        d2 = math.dist(q, s) or 1.0
+        k1, k2 = min(radius, d1 / 2) / d1, min(radius, d2 / 2) / d2
+        out.append((q[0] + (p[0] - q[0]) * k1, q[1] + (p[1] - q[1]) * k1))
+        out.append((q[0] + (s[0] - q[0]) * k2, q[1] + (s[1] - q[1]) * k2))
+    out.append(pts[-1])
+    return out
+
+
+def ortho_route(a, b, radius=14.0, min_run=70.0):
+    """Waypoints for a run that goes across and down, corners rounded.
+
+    A long diagonal reads as a survey line; a hand-drawn SLD turns at a right
+    angle. The run leaves on the axis with the larger gap, turns at the
+    midpoint and arrives square. A short hop stays a straight line, because a
+    jog of a few pixels looks like a mistake, not like a route.
+    """
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    if math.hypot(dx, dy) < min_run:
+        return []
+    if abs(dx) < 6 or abs(dy) < 6:              # already square
+        return []
+    if abs(dx) >= abs(dy):
+        corners = [(ax + dx / 2, ay), (ax + dx / 2, by)]
+    else:
+        corners = [(ax, ay + dy / 2), (bx, ay + dy / 2)]
+    return _chamfer([a] + corners + [b], radius)[1:-1]
+
+
 def _project(px, py, ax, ay, bx, by):
     vx, vy = bx - ax, by - ay
     L = vx * vx + vy * vy
@@ -1158,7 +1200,10 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             bw, bh, style = DTC_W, DTC_H, ST_DTC
             face = str(item["kva"]) if item.get("kva") else "?"
             txt = f"{crop_name(item['name'])}<br><b>{code}</b>"
-        bx, by, rect = free_slot(px, py, bw, bh, taken, first=perp)
+        # a transformer taps the line: it hangs beside it on a service tap, so the
+        # run itself never crosses a symbol
+        off = (-perp[0] * 26, -perp[1] * 26)
+        bx, by, rect = free_slot(px + off[0], py + off[1], bw, bh, taken, first=perp)
         symbols[code] = d.vertex(face, bx - bw / 2, by - bh / 2, bw, bh, style)
         taken.append(rect)
         if abs(bx - px) > 2 or abs(by - py) > 2:
@@ -1222,7 +1267,9 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
     m_id = d.vertex(base, box[0], box[1], MUSS_W, MUSS_H + 8, ST_MUSS)
     taken.append(box)
     if anchor_id and not (root_is_muss and off_map_muss):
-        d.edge(m_id, anchor_id, ST_DASH if off_map_muss else ST_TRUNK)
+        box_mid = (box[0] + MUSS_W / 2, box[1] + (MUSS_H + 8) / 2)
+        d.edge(m_id, anchor_id, ST_DASH if off_map_muss else ST_TRUNK,
+               points=ortho_route(box_mid, tap.get(root_id, box_mid)) or None)
 
     # ---- the network --------------------------------------------------------
     # Drawn last, so a tap lands on its symbol: the trunk heavy, laterals lighter,
@@ -1252,9 +1299,18 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             continue
         spur = (item.get("spur") or "T").upper()
         style = ST_GUESS if why else (ST_TRUNK if spur == "T" else ST_GEO)
-        corners = [P(_metres(lat, lon, lat0, lon0))
-                   for _, lat, lon in (bends or {}).get((parent_code, code), [])]
-        d.edge(tap_id[parent_code], tap_id[code], style, points=corners or None)
+        # a bend off the edge would drag the line past the paper: the span from an
+        # off-map substation is not to scale, so its shape is not used
+        if parent_code == root_id and root_is_muss and off_map_muss:
+            bends_here = []
+        else:
+            bends_here = list((bends or {}).get((parent_code, code), []))
+        surveyed = [P(_metres(lat, lon, lat0, lon0)) for _, lat, lon in bends_here]
+        if surveyed:                  # a recorded shape: its corners, rounded
+            route = _chamfer([tap[parent_code]] + surveyed + [tap[code]], 10)[1:-1]
+        else:                         # nothing recorded: right angles, not a diagonal
+            route = ortho_route(tap[parent_code], tap[code])
+        d.edge(tap_id[parent_code], tap_id[code], style, points=route or None)
         if code in moved:
             d.edge(tap_id[code], symbols[code], ST_STUB)
         # a lateral is named at the point it leaves the trunk, once SPURS names it

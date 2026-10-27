@@ -121,6 +121,11 @@ and lists them in `UNPOSITIONED` — that check is why a typo cannot wreck a she
 
 - Keep the single-file design and the existing section-comment banners. Match the surrounding style:
   4-space indent, `f"..."` messages, short helper functions, no classes beyond `Page`/`Workbook`.
+- **Lines are routed in the tool, not by draw.io.** A run turns at right angles (`ortho_route`) and
+  its corners are chamfered in the points (`_chamfer`), because draw.io does not round an explicit
+  polyline. That keeps the `--preview` PNG honest — the two renderers can only agree while the shape
+  is the tool's own invention. Equipment that sits in the run (pole, GOS, RMU) is drawn on the line;
+  a DTC/HT hangs 26 px beside it on a service tap, which is what keeps a routed line out of a symbol.
 - Console output is aligned `key : value` lines — keep that shape, users read it.
 - The script is deliberately forgiving with data: skip and report, never crash on one bad row. It
   stops only for a configuration problem — missing master, unknown feeder, unusable route, or an

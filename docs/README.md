@@ -190,7 +190,7 @@ Use `--outdir` to choose another folder, or `--out` for one specific file.
 | `--geo` | geographical layout instead of the schematic |
 | `--muss "lat,lon"` | override the substation position, e.g. `--muss "13.9305,75.58584"` |
 | `--extent cluster\|all` | geo only: fit the node network (default) or include the MUSS in the fitted area |
-| `--route file.csv` | surveyed pole coordinates for the trunk (see §7) |
+| `--route file.csv` | surveyed pole coordinates for the trunk (see §7); the run follows these points exactly |
 | `--topology file.xlsx` | use a different connection workbook (default `field_data/TOPOLOGY.xlsx`) |
 | `--no-topology` | ignore the connection workbook and infer the trunk again (see §6) |
 | `--master path.xlsx` | use a different workbook |
@@ -248,19 +248,29 @@ connection workbook (§8) records it. What the generator does:
    than a lateral (`S1`, `S2`, …), a `BENDS` row bends that one span around the corner it records,
    and a link the tool had to guess is drawn **dashed**. With no workbook — or with `--no-topology` —
    a **minimum spanning tree** over the coordinates is used instead: a likeness, not a record.
-4. **Draws each node as the symbol for its `TYPE`.** A DTC is a square with its kVA inside, an HT
+4. **Routes each run orthogonally.** A link does not run diagonally across the sheet: it leaves on
+   the axis with the larger gap, turns at the midpoint and arrives square, and each right angle is
+   cut back into a short curve. A span with `BENDS` rows keeps its recorded shape, with its corners
+   rounded the same way; a hop of less than 70 px stays a straight line, because a small jog reads
+   like a mistake. Equipment that sits *in* the run — a pole, the GOS, an RMU — is drawn on the line;
+   a DTC or HT service hangs *beside* it on a short tap, so a run never crosses a transformer box.
+5. **Draws each node as the symbol for its `TYPE`.** A DTC is a square with its kVA inside, an HT
    service a white square, a pole a dot carrying its code, the GOS a bar sitting on the line, the
    RMU a box naming the ways its cables arrive on, and the MUSS the source box. A symbol that has to
    move off a crowded spot is joined back to its own point by a thin service tap, so the line always
    marks the surveyed position.
-5. **Places the labels.** Each label tries twelve positions (below, above, right, left, at three
+6. **Places the labels.** Each label tries twelve positions (below, above, right, left, at three
    distances) and keeps the freest one. Where two nodes sit on the same spot, the symbols are nudged
    apart so both ratings stay visible.
-6. **Adds the drawing aids** — a scale bar in metres and a north arrow, so the sheet cannot be
+7. **Adds the drawing aids** — a scale bar in metres and a north arrow, so the sheet cannot be
    mistaken for a to-scale survey.
-7. **Lists what it could not place** in a dashed `UNPOSITIONED` box along the bottom, with code,
+8. **Lists what it could not place** in a dashed `UNPOSITIONED` box along the bottom, with code,
    name and the parent it hangs off, so nothing silently disappears and a missing coordinate can be
    filled in from the register.
+
+Because the runs are routed at right angles and a transformer hangs off the line rather than on it,
+the sheet shows *what is connected to what*, not the road the cable follows. The true shape comes
+from `BENDS` (§8): a couple of points per lateral is enough to make a run follow its road.
 
 ### Where the shape came from
 
