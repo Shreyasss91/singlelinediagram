@@ -90,6 +90,16 @@ DTC_W, DTC_H = 44, 22
 LBL_W, LBL_H = 100, 26
 MUSS_W, MUSS_H = 170, 56
 
+# a five-way RMU is drawn as its box plus one terminal per way: ODin on the side
+# it is fed from, the four outgoing ways in register order down the other side
+RMU_W, RMU_H = 90, 24
+RMU_TERM = 7            # the terminal square
+RMU_LEAD = 15           # box edge to terminal
+RMU_ROW = 18            # between two terminals on one side
+RMU_LBL = 74            # room reserved for a way's label
+RMU_CLUSTER = (RMU_W / 2 + RMU_LEAD + RMU_TERM / 2 + 5 + RMU_LBL,
+               RMU_ROW * 1.5 + RMU_TERM / 2 + 6)
+
 # drawing area for the geographical layout
 GEO_X, GEO_Y, GEO_W, GEO_H = 120, 205, 1460, 735
 GEO_MAX_SCALE = 3.2     # px per metre, so a tiny feeder does not fill the sheet
@@ -113,6 +123,14 @@ ST_GOS_OPEN = ("rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#
                "strokeWidth=1.6;")
 ST_TINY = ("text;html=1;align=center;verticalAlign=middle;fontSize=6;whiteSpace=wrap;"
            "fontColor=#1a1a1a;")
+ST_TINY_L = ("text;html=1;align=left;verticalAlign=middle;fontSize=6;whiteSpace=wrap;"
+             "fontColor=#1a1a1a;")
+ST_TINY_R = ST_TINY_L.replace("align=left", "align=right")
+# one terminal of a five-way unit: filled when a cable lands on it, hollow when the
+# register says the way is spare
+ST_TERM = "rounded=0;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=#6c8ebf;"
+ST_TERM_EMPTY = ("rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;"
+                 "strokeWidth=1.2;")
 ST_LINE = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=1;"
 ST_TRUNK = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=1.5;"
 ST_GEO = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=1.3;edgeStyle=none;"
@@ -622,16 +640,41 @@ def resolve_links(items, root_id, drawn=None):
     return links
 
 
-def _rmu_ways_text(used, known):
-    """The ways cables actually arrive on, for the line under the unit's name.
+def draw_rmu(d: Page, reg: dict, used: set, cx: float, cy: float):
+    """Draw a five-way unit as its box plus one terminal per way.
 
-    `used` is what the children name in NODES!WAY - the drawing shows the cables
-    that are recorded, so a way is named here only when something lands on it.
+    `reg` is the unit's rows from `RMU WAYS`, `used` the ways its children name in
+    `NODES!WAY`. ODin is the way the unit is fed through, so it is drawn on the
+    incoming side; the four outgoing ways sit in register order down the other
+    side. A terminal a cable lands on is filled and named with its way; one that
+    is left spare is hollow and named `empty`, so a way with nothing on it cannot
+    be read as a record missing from the workbook.
+
+    Returns the cluster rectangle to keep clear, and {way: (cell id, centre)}.
     """
-    if not known:
-        return "5-way"
-    out = [w for w in VALID_CHILD_WAYS if w in used]
-    return "5-way" + (f" - out {', '.join(out)}" if out else " - no way out recorded")
+    box_id = d.vertex("RMU", cx - RMU_W / 2, cy - RMU_H / 2, RMU_W, RMU_H, ST_RMU)
+    terms = {}
+
+    def terminal(way, side, y):
+        cabled = side < 0 or way in used or (reg.get(way, {}).get("connected") or "").upper() == "Y"
+        lx = cx + side * RMU_W / 2
+        tx = lx + side * RMU_LEAD
+        d.vertex("", min(lx, tx), y - 1, RMU_LEAD, 2, ST_BUS)      # box to terminal
+        cell = d.vertex("", tx - RMU_TERM / 2, y - RMU_TERM / 2, RMU_TERM, RMU_TERM,
+                        ST_TERM if cabled else ST_TERM_EMPTY)
+        txt = way if cabled else f"{way} empty"
+        state = (reg.get(way, {}).get("normally") or "").upper()
+        if cabled and state:
+            txt += f" {state}"
+        lx0 = tx + 5 if side > 0 else tx - 5 - RMU_LBL
+        d.vertex(txt, lx0, y - 6, RMU_LBL, 12, ST_TINY_L if side > 0 else ST_TINY_R)
+        terms[way] = (cell, (tx, y))
+
+    terminal("ODin", -1, cy)
+    for i, way in enumerate(VALID_CHILD_WAYS):
+        terminal(way, 1, cy + (i - 1.5) * RMU_ROW)
+    hw, hh = RMU_CLUSTER
+    return (cx - hw, cy - hh, cx + hw, cy + hh), terms, box_id
 
 
 # ----------------------------------------------------------------------------
@@ -1057,7 +1100,7 @@ def _project(px, py, ax, ay, bx, by):
 
 def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
               extent="cluster", title_text=None, subtitle=None, topo=None,
-              root_id=None, bends=None, spur_labels=None):
+              root_id=None, bends=None, spur_labels=None, ways=None):
     """One A3 sheet with every node at its surveyed position.
 
     `topo` is the feeder's rows from the connection workbook, already merged
@@ -1166,6 +1209,7 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
     cx_pg = sum(P(local[c])[0] for c in net_codes) / len(net_codes)
     cy_pg = sum(P(local[c])[1] for c in net_codes) / len(net_codes)
     taken = []
+    rmu_terms = {}       # (unit, way) -> (terminal cell, centre) for the cable ends
 
     # ---- where each node meets the line ------------------------------------
     # The line runs between these points and follows the recorded bends. A symbol
@@ -1234,11 +1278,27 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
                    else f"<b>{code}</b><br>{crop_name(item['name'], 18)}")
             place_label(d, px, py, txt, taken, bw=30, bh=4, w=104, h=24)
             continue
+        if kind == "RMU" and topo:
+            # the five ways are recorded, so they are drawn: a terminal each, and
+            # the cable that lands on one starts there instead of at the box
+            used = {o["way"] for o in items if o.get("parent") == code and o.get("way")}
+            cw, ch = RMU_CLUSTER[0] * 2, RMU_CLUSTER[1] * 2
+            bx, by, rect = free_slot(px, py, cw, ch, taken)
+            taken.append(rect)
+            rect, terms, box_id = draw_rmu(d, (ways or {}).get(code, {}), used, bx, by)
+            taken.append(rect)
+            symbols[code] = box_id
+            for way, cell_pt in terms.items():
+                rmu_terms[(code, way)] = cell_pt
+            if abs(bx - px) > 2 or abs(by - py) > 2:
+                moved.add(code)
+            place_label(d, bx, by, f"<b>{crop_name(item['name'], 26)}</b>", taken,
+                        bw=cw, bh=ch, w=150, h=12)
+            continue
         if kind == "RMU":
             bw, bh, style, face = 90, 24, ST_RMU, "RMU"
-            used = {o["way"] for o in items if o.get("parent") == code and o.get("way")}
             txt = (f"<b>{crop_name(item['name'], 24)}</b><br>"
-                   f"<font style='font-size:7px'>{_rmu_ways_text(used, bool(topo))}</font>")
+                   f"<font style='font-size:7px'>5-way</font>")
         elif kind == "HT" or code.upper().startswith("HT-"):
             bw, bh, style, face = DTC_W, DTC_H, ST_HT, "HT"
             tail = f" ({item['kva']} kVA)" if item.get("kva") else ""
@@ -1344,6 +1404,11 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             continue
         if not parent_code or parent_code not in tap_id or code not in symbols:
             continue
+        # a cable off an RMU leaves by the way the workbook names, so the line
+        # starts at that terminal and not at the unit's box
+        src_id, src_pt = tap_id[parent_code], tap[parent_code]
+        if (parent_code, (item.get("way") or "")) in rmu_terms:
+            src_id, src_pt = rmu_terms[(parent_code, item["way"])]
         spur = (item.get("spur") or "T").upper()
         style = ST_GUESS if why else (ST_TRUNK if spur == "T" else ST_GEO)
         # a bend off the edge would drag the line past the paper: the span from an
@@ -1354,10 +1419,10 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             bends_here = list((bends or {}).get((parent_code, code), []))
         surveyed = [P(_metres(lat, lon, lat0, lon0)) for _, lat, lon in bends_here]
         if surveyed:                  # a recorded shape: its corners, rounded
-            route = _chamfer([tap[parent_code]] + surveyed + [tap[code]], 10)[1:-1]
+            route = _chamfer([src_pt] + surveyed + [tap[code]], 10)[1:-1]
         else:                         # nothing recorded: right angles, not a diagonal
-            route = ortho_route(tap[parent_code], tap[code])
-        d.edge(tap_id[parent_code], tap_id[code], style, points=route or None)
+            route = ortho_route(src_pt, tap[code])
+        d.edge(src_id, tap_id[code], style, points=route or None)
         if code in moved:
             d.edge(tap_id[code], symbols[code], ST_STUB)
         # a lateral is named at the point it leaves the trunk, once SPURS names it
@@ -2161,6 +2226,7 @@ def main():
             root = topology_root(sel_topo, station)
             root_id = root["id"] if root else None
             bends = topo["bends"]
+            ways = topo["ways"]
             spur_labels = {sid: lab for (f, sid), lab in topo["spurs"].items()
                            if _norm(f) == _norm(args.feeder)}
             kind_count = Counter(i["type"] for i in items)
@@ -2174,7 +2240,7 @@ def main():
         wb, info = build_geo(sel, sel_ht, label, station, muss=muss, route=route,
                              rmus=rmus, extent=args.extent, title_text=args.title,
                              topo=items, root_id=root_id, bends=bends,
-                             spur_labels=spur_labels)
+                             spur_labels=spur_labels, ways=ways)
     else:
         wb, info = build_schematic(sel, sel_ht, label, station, rmus=rmus,
                                    title_text=args.title)

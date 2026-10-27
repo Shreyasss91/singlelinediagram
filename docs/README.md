@@ -256,9 +256,18 @@ connection workbook (§8) records it. What the generator does:
    a DTC or HT service hangs *beside* it on a short tap, so a run never crosses a transformer box.
 5. **Draws each node as the symbol for its `TYPE`.** A DTC is a square with its kVA inside, an HT
    service a white square, a pole a dot carrying its code, the GOS a bar sitting on the line, the
-   RMU a box naming the ways its cables arrive on, and the MUSS the source box. A symbol that has to
-   move off a crowded spot is joined back to its own point by a thin service tap, so the line always
+   MUSS the source box, and the RMU its box with **a terminal per way**. A symbol that has to move
+   off a crowded spot is joined back to its own point by a thin service tap, so the line always
    marks the surveyed position.
+
+   **An RMU shows its five ways.** `ODin` — the way the unit is fed through — is drawn on the side
+   the feed arrives from, and the four outgoing ways (`ODout`, `VL1`–`VL3`) in register order down
+   the other side. Each terminal is labelled: a way a cable lands on is a **filled** square named
+   with its way and switch state (`VL1 NC`), and a way with nothing on it is **hollow** and named
+   (`ODout empty`), so a spare way cannot be read as a row missing from the workbook. A cable off an
+   RMU starts at the terminal the workbook names in `NODES!WAY`, not at the box, so the sheet shows
+   which way a run leaves by. With no workbook the unit is drawn as a plain `5-way` box instead —
+   nothing is known about its ways.
 
    **A GOS shows its state.** `NODES!NORMALLY` decides: `NC` (or blank) is a solid bar across the
    line, `NO` is a hollow blade hinged on the line and lifted off it, labelled `GOS-01 (open)`. The
@@ -330,17 +339,26 @@ dense cluster.
 ### RMUs
 
 Every RMU that belongs to this feeder is drawn as a `90 × 24` box marked `RMU` at its surveyed
-position, its name underneath and the ways its cables arrive on under that:
+position, its name underneath, and **one terminal for each of its five ways** — a small square on a
+short leader out of the box, labelled with the way:
 
 ```
-RAMANNASHETTY PARK RMU
-5-way - out VL1
+   ODin NC  □──[ RMU ]──□ ODout empty
+                       □ VL1 NC
+                       □ VL2 empty
+                       □ VL3 empty
 ```
 
-`out VL1` is read from `NODES!WAY`: the nodes whose `PARENT_ID` is this RMU name the way they leave
-by (§8), so the ring can be followed off the sheet. An RMU is a five-way unit — `ODin`, `ODout`,
-`VL1`, `VL2`, `VL3` — drawn as one symbol with the cabled ways named; it does not draw five
-terminals, and an empty way is simply a way nobody names.
+`ODin` sits on the side the feed arrives from; the four outgoing ways (`ODout`, `VL1`–`VL3`) run in
+register order down the other side. A way a cable lands on is a **filled** square labelled with its
+way and, where the register records one, its switch state (`VL1 NC`); a way with nothing on it is
+**hollow** and labelled `empty`. `NODES!WAY` says which cables land where (§8): a child whose
+`PARENT_ID` is this RMU names the way it leaves by, so the ring can be followed off the sheet, and
+that child's line is drawn from its terminal — not from the box — so the sheet shows which way a run
+goes.
+
+With no workbook (`--no-topology`, or no topology file), the unit is drawn as a plain box marked
+`5-way` under its name: nothing is known about its ways, and five empty terminals would claim it.
 
 When the `RMU WAYS` register disagrees with the connections — a way marked `CONNECTED = N` that a
 child leaves by, or `CONNECTED = Y` on a way no child names — the run prints it and draws what
@@ -435,7 +453,7 @@ drawn it takes the rows whose `FEEDER` cell is that feeder, the MUSS above them,
 * joins every node to its `PARENT_ID` — so a DTC fed from `SCD-36` is drawn to `SCD-36` and to
   nothing else;
 * draws the equipment the master does not hold — poles, the GOS and the RMU;
-* names the ways each RMU's cables arrive on, from `NODES!WAY`;
+* draws each of an RMU's five ways as a terminal and lands each cable on the way `NODES!WAY` names;
 * bends a span through its `BENDS` rows instead of running it straight;
 * prints `<b>S1</b> Chor Bazar lateral` at the branch point when that spur has a `LABEL` on sheet
   `SPURS`, so the sheet and the spur register read together;

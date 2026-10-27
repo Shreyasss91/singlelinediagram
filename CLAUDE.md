@@ -69,8 +69,9 @@ outputs/<date>/                  generated .drawio + PNG (ignored)
 5. **Layouts** — `build_schematic()` (grid, fixed, DTC/HT/RMU only) and `build_geo()` (projection, then
    either the workbook's parent links or an MST or `--route`). Both return `(Workbook, info)`; `info`
    feeds the console summary. `build_geo()` order matters: page transform, then one tap point per
-   node, then the symbols (which may move off a crowded spot), then the MUSS box, then the lines — so
-   a line meets the position the survey recorded, not the box that had to be moved.
+   node, then the symbols (which may move off a crowded spot — `draw_rmu()` for a five-way unit and
+   its terminals), then the MUSS box, then the lines — so a line meets the position the survey
+   recorded, not the box that had to be moved.
 6. **Template builders** — `build_template()` writes the drawio template; `build_topology_template()`
    writes the workbook, with `_infer_topology()` (Prim's MST rooted at the MUSS, then the longest path
    from the MUSS becomes `SPUR_ID = T` and each branch off it becomes `S1`, `S2`, …) and `_node_id()`.
@@ -94,7 +95,10 @@ a register of terminals, not a second copy of the tree.
 VL2, VL3 (OUT)`. The RMU is one `NODES` row whose own `PARENT_ID` *is* way `ODin`; children name
 their exit way in `NODES!WAY` (`ODout`/`VL1`–`VL3`, never `ODin`). Only `ODin` is always connected;
 any outgoing way, `ODout` included, may be empty — `CONNECTED = N` with a blank `NORMALLY`.
-`_way_cabled()` is the only place that decision is made.
+`_way_cabled()` is the template default for a freshly built workbook (only `ODin` starts `Y`); the
+drawing decides separately in `draw_rmu()` — filled when a child names the way or the register says
+`CONNECTED = Y`, hollow and labelled `empty` otherwise. Both rules exist because the template holds
+the register and the drawing holds the connections.
 
 **NODES is the tree, RMU WAYS is a register.** When the two disagree the drawing follows `NODES` —
 a child parented to an RMU is drawn on the way it names — and the register row is reported. Do not
@@ -175,8 +179,10 @@ Verification scripts are throwaway — put them in the temp folder, not the repo
   (`RMU-RAMANNA-SHETTY-PARK` / `VL1`) says `N` while `P-001` leaves by `VL1`, so every F13 run prints
   the warning. That is the workbook, not the code. Compare with the file's own `git diff` before
   blaming the reader.
-- **A five-way RMU is one symbol, not five terminals.** The box names the ways its cables arrive on
-  (`5-way - out VL1`); drawing the five ways as separate stubs has not been done.
+- **An RMU is drawn as its five ways, and only the terminals know.** `draw_rmu()` labels each
+  terminal from `NODES!WAY` and `RMU WAYS!CONNECTED`; nothing else names the ways. A `--no-topology`
+  run has neither, so it draws the plain `5-way` box on purpose — do not "fix" that into five hollow
+  terminals, which would state that a unit nobody has surveyed is unused.
 - **Line endings.** Git reports `LF will be replaced by CRLF` on this Windows checkout. Expected;
   leave it alone.
 - **This repository is public.** The master already contains real DTC names, meter numbers, GPS and
@@ -219,7 +225,8 @@ step separately. **Do not push unless the user asks.**
 Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`), two layouts, `--route`,
 both templates, docs, and **the `--geo` layout drawn from the connection workbook** — parent links,
 poles, GOS, RMU with its cabled ways named, `BENDS` shaping a span, spur tags from `SPURS!LABEL`, and
-validation that separates errors from warnings. Known limitation list is `docs/README.md` §11 — keep
-it honest as work lands. Next candidates, in the order the data will pay for itself: RMU `PARENT_ID`
-rows (three still guessed), five drawn RMU terminals, poles for the remaining feeders, and the same
+validation that separates errors from warnings, runs routed at right angles with rounded corners, a
+GOS that shows `NORMALLY`, and RMUs drawn as their five ways. Known limitation list is
+`docs/README.md` §11 — keep it honest as work lands. Next candidates, in the order the data will pay
+for itself: RMU `PARENT_ID` rows (three still guessed), poles for the remaining feeders, and the same
 connection tree on the schematic layout so both sheets agree.

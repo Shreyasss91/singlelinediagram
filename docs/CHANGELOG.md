@@ -6,7 +6,46 @@ generator up to its current state.
 
 ---
 
-## 2026-10-27 · Newest — a GOS shows whether it is open
+## 2026-10-27 · Newest — an RMU is drawn as its five ways
+
+A five-way unit was one box with its cabled ways named under it. It is now a box with **a terminal
+per way**, because "which way does this cable leave by" is the question an RMU exists to answer, and
+it could not be read off the sheet.
+
+### Added
+- **`draw_rmu()`** — the unit as a `90 × 24` box plus five terminals: `ODin` on the side the feed
+  arrives from, the four outgoing ways (`ODout`, `VL1`–`VL3`) in register order down the other side,
+  each a 7 × 7 square on a short leader out of the box and labelled with its way.
+- **The state of a way is visible.** A terminal is **filled** when a cable lands on it (a child names
+  the way in `NODES!WAY`, or the register says `CONNECTED = Y`) and the label carries the switch
+  state where one is recorded (`VL1 NC`). A way with nothing on it is drawn **hollow** and labelled
+  `empty`, so a spare way cannot be read as a row missing from the workbook.
+- **`ST_TERM`, `ST_TERM_EMPTY`, `ST_TINY_L`, `ST_TINY_R`** — styles for the terminals and their
+  left/right-aligned 6 px labels, and `RMU_W, RMU_H, RMU_TERM, RMU_LEAD, RMU_ROW, RMU_LBL,
+  RMU_CLUSTER` for the cluster's geometry.
+
+### Changed
+- **A cable off an RMU starts at its terminal**, not at the box: `build_geo()` looks the way up in
+  `rmu_terms` and runs the line from that terminal's centre, so the sheet shows the way a run leaves
+  by. The unit's own feed still arrives at its surveyed point and taps into the box.
+- **The whole cluster is reserved** in the label-collision map, so a DTC label cannot land on a
+  terminal and the unit's own name is placed outside it.
+- **`--no-topology` keeps the plain box** marked `5-way`: with no register and no children, five
+  hollow terminals would claim the unit is unused, which is not known.
+- The unit's label no longer carries `5-way - out VL1`; the terminals say it. README §6 and §11 follow.
+
+### Regenerated
+- Regenerated after this change: `outputs\2026-10-27\` (all four geographical sheets).
+
+### Notes
+- On `MRS F1` neither RMU has a recorded child, so all four outgoing terminals are hollow — that is
+  the data, not a defect: the register has `CONNECTED = N` on every way of both units.
+- On `Mandli F13` the `VL1` terminal is filled and `P-001`'s cable leaves from it, while the register
+  row for that way still says `N` — the warning stands.
+
+---
+
+## 2026-10-27 — a GOS shows whether it is open
 
 `NODES!NORMALLY` now decides how the switch is drawn, and the run says what stands behind an open
 point.
