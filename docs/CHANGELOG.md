@@ -6,7 +6,44 @@ generator up to its current state.
 
 ---
 
-## 2026-10-27 · Newest — runs routed at right angles, corners rounded
+## 2026-10-27 · Newest — a GOS shows whether it is open
+
+`NODES!NORMALLY` now decides how the switch is drawn, and the run says what stands behind an open
+point.
+
+### Added
+- **`ST_GOS_OPEN`** — a hollow blade, so the state survives a black-and-white print where colour
+  would not.
+- **An open point is drawn as one:** the blade is hinged on the line at the switch's own coordinate
+  and lifted at 42°, with a small dot at the hinge so the break is obvious. A normally closed switch
+  keeps the solid bar it had.
+- **`load_below(code)` in `validate_topology()`** — walks the selection's children and reports the DTC
+  count and connected kVA under a node, so an open point comes with its consequences:
+  ```
+  ! NODES!131 GOS-01: NORMALLY = NO - drawn as an open point - 5 DTC(s) / 800 kVA recorded
+    downstream; while it stands open that load is fed from elsewhere
+  ```
+
+### Changed
+- **A blank `NORMALLY` on a `GOS` is now reported** (`drawn closed; record NC or NO`) instead of being
+  passed over. `GOS-01` in the current workbook is blank, so every Mandli F13 run says so.
+- **The label carries the state** — `GOS-01 (open)` — because a rotated blade is easy to miss on a
+  dense sheet.
+- `docs/TOPOLOGY_DATA_REQUIREMENTS.md` §12 moves *GOS open/closed* from the open list to the built
+  table, and §13 gains the two switch-state rows. README §6 and the glossary follow.
+
+### Regenerated
+- Regenerated after this change: `outputs\2026-10-27\` (all four geographical sheets).
+
+### Notes
+- The state is read from `NODES!NORMALLY`, never guessed: a switch with no recorded state is drawn
+  closed and reported, because closing is the assumption a radial feeder is operated under.
+- `RMU WAYS!NORMALLY` still only warns (the load on a way marked `NO` is named); a way's state is not
+  drawn yet — it belongs with the five terminals.
+
+---
+
+## 2026-10-27 — runs routed at right angles, corners rounded
 
 The geographical sheet stopped drawing diagonals between taps. Requested after the first workbook-
 driven sheets: *"it need not always be a direct straight line, you can make use of horizontal,

@@ -259,6 +259,14 @@ connection workbook (§8) records it. What the generator does:
    RMU a box naming the ways its cables arrive on, and the MUSS the source box. A symbol that has to
    move off a crowded spot is joined back to its own point by a thin service tap, so the line always
    marks the surveyed position.
+
+   **A GOS shows its state.** `NODES!NORMALLY` decides: `NC` (or blank) is a solid bar across the
+   line, `NO` is a hollow blade hinged on the line and lifted off it, labelled `GOS-01 (open)`. The
+   run reports what stands behind an open point:
+   ```
+   ! NODES!131 GOS-01: NORMALLY = NO - drawn as an open point - 5 DTC(s) / 800 kVA recorded
+     downstream; while it stands open that load is fed from elsewhere
+   ```
 6. **Places the labels.** Each label tries twelve positions (below, above, right, left, at three
    distances) and keeps the freest one. Where two nodes sit on the same spot, the symbols are nudged
    apart so both ratings stay visible.
@@ -457,7 +465,9 @@ RMU is drawn on its recorded way, and the register row is reported as needing an
 | `CONNECTED = N` on a way that a child leaves by | warning — the register needs updating |
 | `CONNECTED = Y` on a way that no child names | warning — is a node missing? |
 | an empty way carrying a `NORMALLY` value | warning — an empty way has no switch state |
-| a way marked `NO` with load recorded downstream | warning — the load is off |
+| a way marked `NO` with load recorded downstream | warning — the load is off while it stands open |
+| a `GOS` with a blank `NORMALLY` | warning — drawn closed; record `NC` or `NO` |
+| a `GOS` marked `NO` | warning — drawn as an open point, with the DTCs and kVA behind it named |
 | `LAT`/`LONG` outside lat 13.5–14.3, lon 75.1–76.0, or only one of the pair filled | warning — treated as unpositioned |
 | a `DTC`/`HT` row whose code is not in the master | warning |
 | a `BENDS` row for a span that is not a parent link | warning — the bend is ignored |
@@ -678,7 +688,7 @@ while saying so:
 | **SCD / SCF / SCE** | DTC code prefixes, numbered per division. |
 | **HT service** | High-tension consumer billed on contracted demand, drawn as a box marked `HT`. |
 | **MUSS** | Main Urban Sub Station — the 110/11 kV source where the feeder starts. |
-| **GOS** | Gang Operated Switch — a hand-operated isolator, drawn as a diagonal bar on the line. |
+| **GOS** | Gang Operated Switch — a hand-operated isolator. Drawn as a solid bar on the line when normally closed, and as a hollow blade lifted off the line when normally open (`NORMALLY = NO`). |
 | **RMU** | Ring Main Unit — a switchgear enclosure with five ways: `ODin` in, `ODout` plus `VL1`–`VL3` out. |
 | **Feeder** | The 11 kV line leaving the MUSS; the subject of one sheet. |
 | **Trunk** | The main run of the feeder from the MUSS; laterals branch off it. |

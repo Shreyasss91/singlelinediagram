@@ -365,6 +365,7 @@ Service connections and meter data do not affect the feeder diagram.
 | `BENDS` | that span is routed through the corners instead of run straight |
 | `SPURS!LABEL` | printed at the branch point (`S1 Chor Bazar lateral`) |
 | `LAT`/`LONG` on a non-DTC row | the pole, GOS or RMU appears, which the master alone cannot show |
+| `NORMALLY` on a `GOS` | the switch is drawn open or closed as recorded, and the run names the DTCs and kVA standing behind an open point |
 | a gap | `UNPOSITIONED` still holds anything without coordinates, now naming the parent it hangs off — nothing disappears |
 
 Still open, in the order the data pays for it:
@@ -373,9 +374,10 @@ Still open, in the order the data pays for it:
   whole feeder; a per-lateral breakdown is a drawing change, not a data one.
 * **five drawn RMU terminals** — the unit is one symbol with its cabled ways named, so an empty way is
   simply a way nobody names rather than a visible spare terminal.
-* **GOS open/closed** — the `NORMALLY` value is read and warned about (`normally open, with load
-  recorded downstream`), but the symbol does not yet distinguish the two states.
-* **downstream count and kVA per section**, for the feasibility reports.
+* **`RMU WAYS!NORMALLY` is not drawn** — a way marked `NO` is warned about and the load behind it is
+  named, but the terminal itself does not yet show the state. Part of the same step as the terminals.
+* **downstream count and kVA per section**, for the feasibility reports — a `GOS` reports its own load
+  now (`load_below()`), but there is no per-section table on the sheet.
 * **the schematic layout** still draws DTC/HT/RMU in a fixed grid and ignores all of this.
 
 ---## 13. Validation the tool runs

@@ -107,6 +107,10 @@ ST_RMU = ("rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8eb
           "strokeWidth=1.2;fontSize=9;fontStyle=1;arcSize=10;")
 ST_POLE = "ellipse;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=#6c8ebf;"
 ST_GOS = "rounded=0;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=none;"
+# an open point: the blade is lifted off the line and left hollow, so the state
+# survives a black-and-white print of the sheet
+ST_GOS_OPEN = ("rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;"
+               "strokeWidth=1.6;")
 ST_TINY = ("text;html=1;align=center;verticalAlign=middle;fontSize=6;whiteSpace=wrap;"
            "fontColor=#1a1a1a;")
 ST_LINE = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=1;"
@@ -442,6 +446,34 @@ def validate_topology(sel, topo, master_codes):
             elif n["way"] not in VALID_CHILD_WAYS:
                 errors.append(f"NODES!{n['row']} {n['id']}: WAY {n['way']!r} is not a way out "
                               f"of an RMU - use {'/'.join(VALID_CHILD_WAYS)}")
+
+    kids = defaultdict(list)
+    for n in sel:
+        kids[n["parent"]].append(n)
+
+    def load_below(code):
+        """DTCs and kVA under a node - what a switch or a way is holding."""
+        out, stack = [], list(kids.get(code, []))
+        while stack:
+            u = stack.pop()
+            out.append(u)
+            stack.extend(kids.get(u["id"], []))
+        dtcs = [x for x in out if x["type"] == "DTC"]
+        return len(dtcs), sum(x["kva"] or 0 for x in dtcs)
+
+    for n in sel:                                 # the state of a switch is not optional
+        if n["type"] != "GOS":
+            continue
+        state = (n["normally"] or "").upper()
+        count, kva = load_below(n["id"])
+        tail = (f" - {count} DTC(s) / {kva} kVA recorded downstream" if count
+                else " - nothing is recorded downstream of it")
+        if not state:
+            warns.append(f"NODES!{n['row']} {n['id']}: NORMALLY is blank - drawn closed; "
+                         f"record NC or NO{tail}")
+        elif state == "NO":
+            warns.append(f"NODES!{n['row']} {n['id']}: NORMALLY = NO - drawn as an open point"
+                         f"{tail}; while it stands open that load is fed from elsewhere")
 
     used = defaultdict(list)                      # one cable per terminal
     for n in sel:
@@ -1182,9 +1214,24 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             continue
         if kind == "GOS":
             # drawn on the line, so the sheet shows where the break really is
-            symbols[code] = d.vertex("", px - 15, py - 2, 30, 4, ST_GOS)
-            taken.append((px - 15, py - 6, px + 15, py + 6))
-            txt = f"<b>{code}</b><br>{crop_name(item['name'], 18)}"
+            is_open = (item.get("normally") or "").upper() == "NO"
+            if is_open:
+                # a blade hinged on the line and lifted: the open point of the ring
+                ang, blade = math.radians(42.0), 30.0
+                tip = (px + math.cos(ang) * blade, py - math.sin(ang) * blade)
+                cx0, cy0 = (px + tip[0]) / 2, (py + tip[1]) / 2
+                # mxGraph rotates about the shape's centre, so the rect is centred
+                # on the blade's midpoint and the hinge lands back on the line
+                symbols[code] = d.vertex("", cx0 - blade / 2, cy0 - 2, blade, 4,
+                                         ST_GOS_OPEN + f"rotation={math.degrees(ang):.0f};")
+                taken.append((min(px, tip[0]) - 6, min(py, tip[1]) - 6,
+                              max(px, tip[0]) + 6, max(py, tip[1]) + 6))
+                d.vertex("", px - 3, py - 3, 6, 6, ST_POLE)   # the hinge
+            else:
+                symbols[code] = d.vertex("", px - 15, py - 2, 30, 4, ST_GOS)
+                taken.append((px - 15, py - 6, px + 15, py + 6))
+            txt = (f"<b>{code}</b> (open)<br>{crop_name(item['name'], 18)}" if is_open
+                   else f"<b>{code}</b><br>{crop_name(item['name'], 18)}")
             place_label(d, px, py, txt, taken, bw=30, bh=4, w=104, h=24)
             continue
         if kind == "RMU":
