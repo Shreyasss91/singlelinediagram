@@ -213,17 +213,42 @@ With `--name "MRS F1"` on 26 October 2026 that is `outputs\2026-10-26\MRS F1 SLD
 ## 5. The schematic layout (default)
 
 A clean, conventional sheet: a vertical distributor on the left, horizontal laterals across the
-page, DTCs hung beneath each lateral in code order, a MUSS box at the top right, and the
-25/63/100/200/250 summary table bottom right.
+page, the nodes of the feeder hung beneath in **the order the connection workbook connects them**, a
+MUSS box at the top right, and the 25/63/100/200/250 summary table bottom right.
 
-The column count adapts to how many DTCs there are — 19 DTCs get 7 per lateral and 3 laterals,
-63 DTCs get 14 per lateral and 5 laterals. Slots never drop below 92 px, so labels cannot collide
-horizontally.
+The order is depth first from the MUSS in workbook row order, so a parent is always drawn before its
+children and a spur's nodes stay together in one run of the grid — the same grouping the geographical
+sheet shows with lines. It is the only order the sheet uses; the register's code order is not mixed
+in, because `SCD-49` sorted after `SCD-48` is not the same statement as `SCD-49` fed from `SCD-48`.
 
-HT services and RMUs from sheet `NON DTC NODES` are appended after the DTCs on the last lateral, so
-they are present on the sheet even though a schematic has no geography — an RMU box there shows the
-asset exists, not where it sits. RMU boxes are labelled `5-way`, because every unit in this network
-has one incoming and four outgoing ways (see §8).
+Each box says what feeds it, in small type under its code:
+
+```
+CHOR BAZAR
+SCD-19
+from SCD-01
+            S1
+```
+
+A `POLE` is a dot with its code, the GOS a bar (open when `NORMALLY = NO`), and the RMU a box whose
+second line names the ways cables arrive on (`5-way - out VL1`), so an equipment row the master does
+not hold still has its symbol. A spur tag (`S1`, plus the name from `SPURS!LABEL`) is printed under
+the node the spur leaves from, not under its first box. A node with no `PARENT_ID` — or one the
+workbook has no row for — is drawn after the trunk with no parent named, and the run says how many
+and which:
+
+```
+! 2 node(s) drawn after the trunk, no parent named - no PARENT_ID recorded:
+  RMU-RAMANNA-SHETTY-PARK, SCF-03
+```
+
+The column count adapts to how many nodes there are — 22 nodes get 8 per lateral and 3 laterals,
+70 nodes get 14 and 5. Slots never drop below 92 px, so labels cannot collide horizontally. HT
+services and RMUs come out of the same tree, so they are no longer appended at the end.
+
+Without a workbook (`--no-topology`, or no topology file) the rows are drawn in the register's code
+order and nothing is said about parents, because none are recorded. The summary table stays the kVA
+histogram of the master's DTCs either way.
 
 Use it when you want a **neat drawing** for submission. Use `--geo` when you want the drawing to
 **look like the network on the ground**.
@@ -465,7 +490,6 @@ RMU is drawn on its recorded way, and the register row is reported as needing an
 ```
   topology    : field_data\TOPOLOGY.xlsx  |  19 DTC, 1 GOS, 1 MUSS, 1 POLE, 1 RMU
   ! NODES!6 RMU-RAMANNA-SHETTY-PARK: no PARENT_ID - its parent is guessed from the nearest node
-    and drawn dashed
   ! RMU WAYS!14 RMU-RAMANNA-SHETTY-PARK VL1: CONNECTED = N but P-001 leaves by that way - set it to Y
   links       : 1 guessed, drawn dashed - RMU-RAMANNA-SHETTY-PARK
 ```
@@ -690,7 +714,7 @@ while saying so:
 | A pole, GOS or `P-001` is missing from a sheet | Its row is not in the chain the feeder draws: set `FEEDER` on the row, or parent it under a node of this feeder. |
 | A line comes off two DTCs at once | Look at `NODES!PARENT_ID` for the DTC that should hang off one of them; the drawing is only following the workbook. |
 | `X disagrees with itself - nothing was drawn` | A structural error: duplicate `NODE_ID`, a `PARENT_ID` that is not a row, a loop, a bad `WAY`. The message names sheet, row and column. |
-| `no PARENT_ID - its parent is guessed … drawn dashed` | Fill in `PARENT_ID` for that row (§8). Until then the link is a dashed guess, listed in the console. |
+| `no PARENT_ID - its parent is guessed` | Fill in `PARENT_ID` for that row (§8). Until then the geo sheet draws a dashed link to the nearest node and the run lists it. |
 | A `.drawio` will not open | Check it was not renamed to `.xml`; draw.io needs the `.drawio` extension. |
 | `--topology-template` says the file already exists | It refuses to overwrite your edits. Close Excel, then use `--force` to rebuild or `--out` for a new file. |
 | `Permission denied` saving `TOPOLOGY TEMPLATE.xlsx` | The workbook is open in Excel. Close it and rerun; the `~$` file beside it is the lock. |

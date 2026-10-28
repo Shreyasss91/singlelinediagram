@@ -6,7 +6,50 @@ generator up to its current state.
 
 ---
 
-## 2026-10-27 · Newest — an RMU is drawn as its five ways
+## 2026-10-28 · Newest — the schematic is the same tree as the geographical sheet
+
+The schematic still has no geography, but it no longer has a different tree: it is now drawn in the
+order the connection workbook records, each box says what feeds it, and a spur is tagged where it
+leaves the trunk. The two sheets of a feeder can be read against each other.
+
+### Added
+- **`tree_order()`** — depth first from the MUSS in workbook row order. A parent is drawn before its
+  children and a spur's nodes stay in one run of the grid, which is what the geographical sheet shows
+  with lines.
+- **The feed is named under each box** — `from SCD-01` in 7 px blue. It is the fact the schematic
+  otherwise lacks: the bus under a row says *which lateral*, never *which node*.
+- **`rmu_way_text()`** — a grid row has no room for a terminal cluster, so the unit's ways are said in
+  words (`5-way - out VL1`, or `5-way - no way out recorded`), the same ways the geographical sheet
+  draws as terminals.
+- **A `POLE` and a `GOS` are drawn** — a dot with its code, a bar with its state, an `(open)` after
+  the code. Before, only DTC, HT and RMU had symbols.
+- **A spur tag at its branch point** — `S1` plus the `SPURS!LABEL` name under the node the spur leaves
+  from. A tag at the first box of the spur would say the spur starts there, which is not what the
+  register means.
+
+### Changed
+- **The order is the workbook's, not the register's code order.** `--no-topology` (or no topology
+  file) keeps code order, because no parent is recorded there.
+- **Nodes with nothing to hang under are reported once per reason**, not once per node — a 63-DTC
+  feeder with eight such rows printed eight lines for one fact:
+  ```
+  ! 8 node(s) drawn after the trunk, no parent named - no PARENT_ID recorded:
+    RMU-KOTE-ROAD, RMU-GANGOTHTI-COLLEGE, SCD-68, HT-28, HT-87, HT-92, HT-188, HT-193
+  ```
+- The subtitle says `connection workbook` instead of `generated from DTC DETAILS U4.xlsx`, and the
+  console gains a `source` line on the schematic path as well.
+
+### Regenerated
+- Regenerated after this change: `outputs\2026-10-27\` (the four schematic sheets and their PNGs).
+
+### Notes
+- The row bus is still a bus: a drawing convention standing in for "these hang off the lateral",
+  not a claim about which node feeds which. That claim is on the box.
+- The summary table is unchanged — it is still the kVA histogram of the master's DTCs.
+
+---
+
+## 2026-10-27 · an RMU is drawn as its five ways
 
 A five-way unit was one box with its cabled ways named under it. It is now a box with **a terminal
 per way**, because "which way does this cable leave by" is the question an RMU exists to answer, and

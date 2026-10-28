@@ -66,12 +66,14 @@ outputs/<date>/                  generated .drawio + PNG (ignored)
 3. **Model** — `Page` and `Workbook` emit the `mxCell` XML. `Workbook.to_xml()` is the only writer.
 4. **Furniture** — `sheet_header`, `summary_table`, `unpositioned_block`, `scale_bar`, label
    placement helpers. Shared by both layouts.
-5. **Layouts** — `build_schematic()` (grid, fixed, DTC/HT/RMU only) and `build_geo()` (projection, then
-   either the workbook's parent links or an MST or `--route`). Both return `(Workbook, info)`; `info`
-   feeds the console summary. `build_geo()` order matters: page transform, then one tap point per
-   node, then the symbols (which may move off a crowded spot — `draw_rmu()` for a five-way unit and
-   its terminals), then the MUSS box, then the lines — so a line meets the position the survey
-   recorded, not the box that had to be moved.
+5. **Layouts** — `build_schematic()` (a grid, but ordered by `tree_order()` when the workbook is
+   there) and `build_geo()` (projection, then either the workbook's parent links or an MST or
+   `--route`). Both return `(Workbook, info)`; `info` feeds the console summary. `build_geo()` order
+   matters: page transform, then one tap point per node, then the symbols (which may move off a
+   crowded spot — `draw_rmu()` for a five-way unit and its terminals), then the MUSS box, then the
+   lines — so a line meets the position the survey recorded, not the box that had to be moved.
+   `build_schematic()` draws the node's parent under its box (`from SCD-01`) and the spur tag at the
+   branch point, because a grid has no line to say either; the row bus is a convention, not a claim.
 6. **Template builders** — `build_template()` writes the drawio template; `build_topology_template()`
    writes the workbook, with `_infer_topology()` (Prim's MST rooted at the MUSS, then the longest path
    from the MUSS becomes `SPUR_ID = T` and each branch off it becomes `S1`, `S2`, …) and `_node_id()`.
@@ -222,11 +224,12 @@ step separately. **Do not push unless the user asks.**
 
 ## Current state
 
-Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`), two layouts, `--route`,
-both templates, docs, and **the `--geo` layout drawn from the connection workbook** — parent links,
-poles, GOS, RMU with its cabled ways named, `BENDS` shaping a span, spur tags from `SPURS!LABEL`, and
-validation that separates errors from warnings, runs routed at right angles with rounded corners, a
-GOS that shows `NORMALLY`, and RMUs drawn as their five ways. Known limitation list is
+Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`) drawn as five terminals,
+two layouts, `--route`, both templates, docs, and **both layouts drawn from the connection
+workbook** — `--geo` with parent links, poles, the GOS and its state, the RMU's terminals,
+orthogonal runs with rounded corners, `BENDS` shaping a span and spur tags from `SPURS!LABEL`; the
+schematic in depth-first order with `from <parent>` under each box, equipment symbols and a spur tag
+at the branch point. Validation separates errors from warnings. Known limitation list is
 `docs/README.md` §11 — keep it honest as work lands. Next candidates, in the order the data will pay
-for itself: RMU `PARENT_ID` rows (three still guessed), poles for the remaining feeders, and the same
-connection tree on the schematic layout so both sheets agree.
+for itself: a `PARENT_ID` on each RMU row (three still guessed), a recorded `NORMALLY` on the GOS
+rows, poles for the remaining feeders, and a per-spur count in the summary table.

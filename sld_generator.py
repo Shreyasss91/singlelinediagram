@@ -445,7 +445,7 @@ def validate_topology(sel, topo, master_codes):
     for n in sel:
         if not n["parent"] and n["type"] != "MUSS" and n["lat"] is not None:
             warns.append(f"NODES!{n['row']} {n['id']}: no PARENT_ID - its parent is guessed "
-                         "from the nearest node and drawn dashed")
+                         "from the nearest node")
         if (n["lat"] is None) != (n["lon"] is None):
             warns.append(f"NODES!{n['row']} {n['id']}: only one of LAT/LONG is filled - "
                          "treated as having no coordinates")
@@ -889,15 +889,103 @@ def choose_grid(n: int):
     return per_row, rows, row_h
 
 
-def build_schematic(dtcs, hts, label, station, rmus=(), title_text=None, subtitle=None):
+def tree_order(items, root_id):
+    """The workbook's tree in drawing order: the root first, then each branch.
+
+    Depth first in workbook row order, so a parent is always drawn before its
+    children and a spur's nodes stay together in one run of the grid. That is
+    what lets the same lateral be followed on both sheets of a feeder.
+    Returns the ordered items and the codes with no parent row to hang under.
+    """
+    by_id = {it["code"]: it for it in items}
+    kids = defaultdict(list)
+    for it in items:
+        kids[it["parent"]].append(it["code"])
+    out, seen, lost = [], set(), []
+
+    def walk(code):
+        if code in seen or code not in by_id:
+            return
+        seen.add(code)
+        out.append(by_id[code])
+        for kid in kids[code]:
+            walk(kid)
+
+    walk(root_id)
+    for it in items:                    # nothing to hang under: drawn after the trunk
+        if it["code"] in seen:
+            continue
+        if it["code"] != root_id and it["parent"] not in by_id:
+            lost.append(it)
+        walk(it["code"])
+    return out, lost
+
+
+def rmu_way_text(used, known):
+    """Which ways cables arrive on, for the line under a unit's name.
+
+    The geographical sheet draws these as five terminals; a grid row has no room
+    for a cluster, so the same fact is said in words - and both sheets name the
+    same ways.
+    """
+    if not known:
+        return "5-way"
+    out = [w for w in VALID_CHILD_WAYS if w in used]
+    return "5-way" + (f" - out {', '.join(out)}" if out else " - no way out recorded")
+
+
+def build_schematic(dtcs, hts, label, station, rmus=(), title_text=None, subtitle=None,
+                    topo=None, root_id=None, spur_labels=None, ways=None):
+    """One A3 sheet as a grid of laterals hanging off a distributor.
+
+    Without a workbook this is the register's rows in code order, which is all a
+    schematic can be. With one, the nodes come out in the order the record
+    connects them - depth first from the MUSS - each is labelled with the node
+    that feeds it, and the node a spur starts at is tagged with the spur's name.
+    The row line is a bus and not a drawing of the parents: there is no
+    geography here, so the parent is written under the box instead.
+    """
     wb = Workbook()
     d = wb.page(label or "SLD")
-    n = len(dtcs) + len(hts) + len(rmus)
-    per_row, rows, row_h = choose_grid(n)
+    if topo:
+        order, lost = tree_order(list(topo), root_id)
+        by_why = defaultdict(list)         # one line per reason, not one per node
+        for it in lost:
+            why = ("not in the workbook" if it.get("basis") == "MASTER-ONLY" else
+                   "no PARENT_ID recorded" if not it["parent"] else
+                   f"PARENT_ID {it['parent']!r} is not a row in the workbook")
+            by_why[why].append(it["code"])
+        for why, codes in by_why.items():
+            print(f"  ! {len(codes)} node(s) drawn after the trunk, no parent named - {why}: "
+                  f"{', '.join(codes)}")
+        items = [it for it in order if (it.get("type") or "").upper() != "MUSS"]
+        codes = {it["code"] for it in items}
+        used_ways = defaultdict(set)
+        for it in items:
+            if it.get("way"):
+                used_ways[it["parent"]].add(it["way"])
+        # the tag marks the branch point, not every box on the spur: the first
+        # node of a spur names where it leaves from, and depth first order puts
+        # that node at the head of the spur's run
+        start = {}
+        for it in order:
+            sp = (it.get("spur") or "").upper()
+            if sp and sp != "T" and sp not in start and it["parent"] in codes:
+                start[sp] = it["parent"]
+        spurs_at = defaultdict(list)
+        for sp, at in start.items():
+            spurs_at[at].append(sp)
+    else:
+        items = [dict(it, type=it.get("kind", "DTC"), parent="", spur="", way="")
+                 for it in list(dtcs) + list(hts) + list(rmus)]
+        used_ways, spurs_at = defaultdict(set), {}
+    per_row, rows, row_h = choose_grid(len(items))
     slot = (LATERAL_R - LATERAL_L) / per_row
 
     title = title_text or f"SINGLE LINE DIAGRAM OF {label.upper()} in Unit-4, CSD-2, SMG"
     sheet_header(d, title, subtitle or (
+        f"{station}  MUSS   |   connection workbook   |   {len(items)} nodes   |   "
+        f"{date.today():%d-%m-%Y}" if topo else
         f"{station}  MUSS   |   generated from DTC DETAILS U4.xlsx   |   {date.today():%d-%m-%Y}"))
 
     muss_x = 1370
@@ -913,32 +1001,57 @@ def build_schematic(dtcs, hts, label, station, rmus=(), title_text=None, subtitl
         d.edge(junctions[-1], j, ST_TRUNK)
         junctions.append(j)
 
-    for idx, item in enumerate(list(dtcs) + list(hts) + list(rmus)):
+    for idx, item in enumerate(items):
         r, c = divmod(idx, per_row)
         y = FIRST_ROW_Y + r * row_h
         x = LATERAL_L + c * slot + SLOT_MIN / 2
         j = d.vertex("", x - 2, y, 4, 4, ST_JUNC)
         d.edge(junctions[r] if c == 0 else prev_j, j, ST_LINE)
         prev_j = j
-        kind = item.get("kind", "DTC")
+        kind = (item.get("type") or item.get("kind") or "DTC").upper()
         name = crop_name(item["name"])
+        code = item["code"]
+        parent = item.get("parent") or ""
+        # the node that feeds this one, so a box can be checked against the
+        # geographical sheet, which draws that same link as a line
+        from_txt = (f"<br><font style='font-size:7px;color=#6c8ebf'>from {parent}</font>"
+                    if topo and parent else "")
+        if kind == "POLE":
+            d.vertex("", x - 3, y - 3, 6, 6, ST_POLE)        # a pole is in the run
+            d.vertex(f"<b>{code}</b>{from_txt}", x - 54, y + 12, 108, 24, ST_TINY)
+            continue
+        if kind == "GOS":
+            is_open = (item.get("normally") or "").upper() == "NO"
+            d.vertex("", x - 15, y - 2, 30, 4, ST_GOS_OPEN if is_open else ST_GOS)
+            d.vertex(f"<b>{code}</b>{' (open)' if is_open else ''}<br>{crop_name(name, 18)}"
+                     f"{from_txt}", x - 54, y + 12, 108, 34, ST_TINY)
+            continue
         if kind == "HT":
             tail = f" ({item['kva']} kVA)" if item.get("kva") else ""
-            label_txt, face, w_item, style = f"{name}<br><b>{item['code']}</b>{tail}", "HT", DTC_W, ST_HT
+            label_txt, face, w_item, style = (f"{name}<br><b>{code}</b>{tail}{from_txt}",
+                                             "HT", DTC_W, ST_HT)
         elif kind == "RMU":
             label_txt = (f"<b>{crop_name(item['name'], 24)}</b>"
-                         "<br><font style='font-size:7px'>5-way</font>")
+                         f"<br><font style='font-size:7px'>"
+                         f"{rmu_way_text(used_ways.get(code, set()), bool(topo))}</font>"
+                         f"{from_txt}")
             face, w_item, style = "RMU", 90, ST_RMU
         else:
-            label_txt = f"{name}<br><b>{item['code']}</b>"
+            label_txt = f"{name}<br><b>{code}</b>{from_txt}"
             face = str(item["kva"]) if item.get("kva") else "?"
             w_item, style = DTC_W, ST_DTC
         sq = d.vertex(face, x - w_item / 2, y + 30, w_item, DTC_H, style)
         d.edge(j, sq, ST_LINE)
-        d.vertex(label_txt, x - LBL_W / 2, y + 54, LBL_W, LBL_H, ST_LBL)
+        d.vertex(label_txt, x - LBL_W / 2, y + 54, LBL_W, LBL_H + (10 if from_txt else 0),
+                 ST_LBL)
+        for k, spur in enumerate(spurs_at.get(code, ())):    # the tag marks the branch, not
+            tag = (spur_labels or {}).get(spur, "")          # the first box of the spur
+            d.vertex(f"<b>{spur}</b>{(' ' + tag) if tag else ''}", x - 60, y + 92 + k * 14,
+                     120, 14, ST_TINY)
 
     summary_table(d, dtcs)
-    return wb, dict(per_row=per_row, rows=rows, row_h=row_h, scale=None)
+    return wb, dict(per_row=per_row, rows=rows, row_h=row_h, scale=None,
+                    source="connection workbook" if topo else "DTC DETAILS U4.xlsx")
 
 
 # ----------------------------------------------------------------------------
@@ -2205,7 +2318,7 @@ def main():
 
     # ---- the connection workbook -------------------------------------------
     items, root_id, ways, bends, spur_labels = None, None, None, None, None
-    if args.geo and topo:
+    if topo:            # both layouts are drawn from the record when it is there
         sel_topo = topology_for_feeder(topo, args.feeder, station)
         if sel_topo:
             errs, warns = validate_topology(sel_topo, topo,
@@ -2243,7 +2356,8 @@ def main():
                              spur_labels=spur_labels, ways=ways)
     else:
         wb, info = build_schematic(sel, sel_ht, label, station, rmus=rmus,
-                                   title_text=args.title)
+                                   title_text=args.title, topo=items, root_id=root_id,
+                                   spur_labels=spur_labels, ways=ways)
 
     xml = wb.to_xml()
     if args.out:
@@ -2262,6 +2376,7 @@ def main():
         print(f"  source      : {info['source']}")
     else:
         print(f"  layout      : schematic  |  {info['per_row']} per lateral x {info['rows']} laterals")
+        print(f"  source      : {info['source']}")
     print(f"  written     : {_display(out)}")
     if args.preview:
         preview(xml, os.path.splitext(out)[0] + ".png")
