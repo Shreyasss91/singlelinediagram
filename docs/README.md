@@ -276,11 +276,11 @@ connection workbook (§8) records it. What the generator does:
    and a link the tool had to guess is drawn **dashed**. With no workbook — or with `--no-topology` —
    a **minimum spanning tree** over the coordinates is used instead: a likeness, not a record.
 4. **Routes each run orthogonally.** A link does not run diagonally across the sheet: it leaves on
-   the axis with the larger gap, turns at the midpoint and arrives square, and each right angle is
-   cut back into a short curve. A span with `BENDS` rows keeps its recorded shape, with its corners
-   rounded the same way; a hop of less than 70 px stays a straight line, because a small jog reads
-   like a mistake. Equipment that sits *in* the run — a pole, the GOS, an RMU — is drawn on the line;
-   a DTC or HT service hangs *beside* it on a short tap, so a run never crosses a transformer box.
+   the axis with the larger gap, turns at the midpoint and arrives square, and the turn is one sharp
+   right angle. A span with `BENDS` rows keeps its recorded shape, corner for corner; a hop of less
+   than 70 px stays a straight line, because a small jog reads like a mistake. Equipment that sits
+   *in* the run — a pole, the GOS, an RMU — is drawn on the line; a DTC or HT service hangs *beside*
+   it on a short tap, so a run never crosses a transformer box.
 5. **Draws each node as the symbol for its `TYPE`.** A DTC is a square with its kVA inside, an HT
    service a white square, a pole a dot carrying its code, the GOS a bar sitting on the line, the
    MUSS the source box, and the RMU its box with **a terminal per way**. A symbol that has to move

@@ -6,7 +6,34 @@ generator up to its current state.
 
 ---
 
-## 2026-10-28 · Newest — the schematic is the same tree as the geographical sheet
+## 2026-10-28 · Newest — the corners are square again
+
+The routing stays orthogonal; the chamfer that used to cut each corner back into a short diagonal is
+gone, so a run turns at a true right angle.
+
+### Changed
+- **`ortho_route()` returns the corner itself.** It used to hand the polyline to `_chamfer()`, which
+  replaced every turn with two points and a 12–14 px diagonal. draw.io does not round an explicit
+  polyline, so that diagonal was an imitation of a curve, not a curve; the sheet is asked for a
+  clean hand-drawn turn, which is one point at 90°.
+- **A `BENDS` span is drawn through its recorded points unchanged** — its corners are the survey's,
+  not a 10 px cut of them.
+- **`_chamfer()` is removed**, not left disabled: nothing else used it, and a helper kept "for later"
+  is a helper somebody re-enables without the measurement.
+
+### Regenerated
+- Regenerated after this change: `outputs\2026-10-27\` (all eight sheets and their PNGs).
+
+### Notes
+- The routing rule is unchanged: the run leaves on the axis with the larger gap, turns at the
+  midpoint, and a hop under 70 px stays straight.
+- Measured after the change: 58 routed runs, every corner 90°, no diagonal segment on a routed run;
+  the only diagonal lines left are the short service taps and runs with under 6 px of off-axis
+  drift, which the router deliberately leaves alone.
+
+---
+
+## 2026-10-28 — the schematic is the same tree as the geographical sheet
 
 The schematic still has no geography, but it no longer has a different tree: it is now drawn in the
 order the connection workbook records, each box says what feeds it, and a spur is tagged where it

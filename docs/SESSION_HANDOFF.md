@@ -33,7 +33,7 @@
 > the master and had to infer the tree.
 >
 > **Update 8 (28 October 2026):** four drawing steps landed, one commit each — runs are routed at
-> right angles with rounded corners; a `GOS` shows `NORMALLY` with the load behind an open point
+> right angles with square corners; a `GOS` shows `NORMALLY` with the load behind an open point
 > named; an RMU is drawn as **five terminals** with the empty ones visible; and **the schematic is
 > drawn from the same tree** (depth-first order, `from <parent>` under each box, equipment symbols,
 > spur tags at the branch point). §5 and §7 below describe the current behaviour; §9 is the updated
@@ -122,7 +122,7 @@ sheet furniture         L747–878  sheet_header, summary_table, unpositioned_bl
                                   _overlaps, _clamp_label, place_label, free_slot
 schematic layout        L881–1057 choose_grid, tree_order, rmu_way_text, build_schematic
 geo helpers             L1060–1214 clean_points, _metres, prim, tree_ends, read_route,
-                                  _chamfer, ortho_route, _project
+                                  ortho_route, _project
 geo layout              L1214–1568 build_geo
 templates               L1571–2136 build_template, build_topology_template, _infer_topology
 preview                 L2139–2203 preview (PyMuPDF re-draw of the same coordinates)
@@ -212,9 +212,10 @@ listed. **The row bus is a convention, not wiring:** only the `from` line states
    between tap points (`BENDS` rows become edge waypoints), so a line always marks where the
    equipment is.
 6. **Routing.** `ortho_route()` turns every run at right angles — the axis with the larger gap first,
-   turning at the midpoint — and `_chamfer()` cuts each corner back into a 12–14 px curve, because
-   draw.io does not round an explicit polyline. A hop under 70 px stays straight. A recorded bend on
-   a span from the off-map MUSS is dropped rather than dragging the line off the paper.
+   turning at the midpoint — and the corner is a single point, so the two segments meet at exactly
+   90°. A `BENDS` span is drawn through its recorded points unchanged. A hop under 70 px stays
+   straight, and so does a run with under 6 px of off-axis drift. A recorded bend on a span from the
+   off-map MUSS is dropped rather than dragging the line off the paper.
 7. **Symbols**, per `TYPE`: `DTC` = 44 × 22 square with the kVA, `HT` = white square, `POLE`/`JUNCTION`
    = 6 × 6 dot with its code in 6 px text, `GOS` = 30 × 4 bar sitting on the line (a lifted hollow
    blade when `NORMALLY = NO`), `RMU` = `draw_rmu()`'s box with five labelled terminals — filled where
@@ -308,8 +309,8 @@ Three `RMU WAYS` units and 23 `SPURS` rows are recorded; `BENDS` is still empty.
   `--template`, `--topology-template --out <temp>` (129 NODES rows rebuilt, template untouched).
 * **Console**: warnings name sheet, row and column (`NODES!6 …`, `RMU WAYS!14 …`).
 * **Not verified**: opening the `.drawio` files in draw.io itself — still no installation here. The
-  XML is the same schema the earlier sheets used and the earlier ones opened; the chamfered
-  polylines `_chamfer()` writes are the newest shape not yet seen in a browser or the desktop app.
+  XML is the same schema the earlier sheets used and the earlier ones opened; the explicit
+  multi-point polylines the router writes are the newest shape not yet seen in the desktop app.
 
 ### Verification performed (28 October 2026)
 
@@ -317,9 +318,10 @@ Three `RMU WAYS` units and 23 `SPURS` rows are recorded; `BENDS` is still empty.
   `field_data/TOPOLOGY.xlsx` as it stands, then parsed with ElementTree: **0 dangling connectors,
   0 shapes off the A3 page** in each. Vertices/edges: MRS F1 247/122 geo and 244/145 schematic,
   F22 112/58 and 122/67, F13 100/36 and 86/45, F3 37/8 and 34/12.
-* **Routing**: every edge's waypoints measured against its own endpoints — **0 diagonal segments
-  longer than 71 px** across 224 runs. 58 runs carry chamfer waypoints; the rest are straight because
-  they are short hops or already on one axis, which is the rule.
+* **Routing**: every edge's waypoints measured against its own endpoints on the regenerated geo
+  sheets — **58 routed runs, every corner exactly 90°, no diagonal segment on any routed run**. The
+  other 166 edges carry no waypoints: service taps, the MUSS feeder, short hops under 70 px and runs
+  with under 6 px of off-axis drift, which the router leaves straight on purpose.
 * **GOS**: `GOS-01` is blank in the workbook, so every F13 run prints `NORMALLY is blank - drawn
   closed; record NC or NO - 14 DTC(s) / 1951 kVA recorded downstream`. On a throwaway copy with
   `NO`, the blade lifts off the line and the label carries `(open)`.

@@ -127,9 +127,9 @@ and lists them in `UNPOSITIONED` — that check is why a typo cannot wreck a she
 
 - Keep the single-file design and the existing section-comment banners. Match the surrounding style:
   4-space indent, `f"..."` messages, short helper functions, no classes beyond `Page`/`Workbook`.
-- **Lines are routed in the tool, not by draw.io.** A run turns at right angles (`ortho_route`) and
-  its corners are chamfered in the points (`_chamfer`), because draw.io does not round an explicit
-  polyline. That keeps the `--preview` PNG honest — the two renderers can only agree while the shape
+- **Lines are routed in the tool, not by draw.io.** A run turns at right angles (`ortho_route`),
+  and the corner is one point: the two segments meet at exactly 90°, with no rounding and no
+  chamfer. That keeps the `--preview` PNG honest — the two renderers can only agree while the shape
   is the tool's own invention. Equipment that sits in the run (pole, GOS, RMU) is drawn on the line;
   a DTC/HT hangs 26 px beside it on a service tap, which is what keeps a routed line out of a symbol.
 - Console output is aligned `key : value` lines — keep that shape, users read it.
@@ -227,7 +227,7 @@ step separately. **Do not push unless the user asks.**
 Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`) drawn as five terminals,
 two layouts, `--route`, both templates, docs, and **both layouts drawn from the connection
 workbook** — `--geo` with parent links, poles, the GOS and its state, the RMU's terminals,
-orthogonal runs with rounded corners, `BENDS` shaping a span and spur tags from `SPURS!LABEL`; the
+orthogonal runs with square corners, `BENDS` shaping a span and spur tags from `SPURS!LABEL`; the
 schematic in depth-first order with `from <parent>` under each box, equipment symbols and a spur tag
 at the branch point. Validation separates errors from warnings. Known limitation list is
 `docs/README.md` §11 — keep it honest as work lands. Next candidates, in the order the data will pay

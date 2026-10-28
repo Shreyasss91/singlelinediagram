@@ -1161,32 +1161,13 @@ def read_route(path):
     return pts
 
 
-def _chamfer(pts, radius=12.0):
-    """Cut the corners of a right-angle polyline so they read as curves.
-
-    draw.io draws the points it is given; there is no corner rounding on an
-    explicit polyline, so the corner of a run is replaced by a short diagonal.
-    """
-    if len(pts) < 3:
-        return list(pts)
-    out = [pts[0]]
-    for i in range(1, len(pts) - 1):
-        p, q, s = pts[i - 1], pts[i], pts[i + 1]
-        d1 = math.dist(p, q) or 1.0
-        d2 = math.dist(q, s) or 1.0
-        k1, k2 = min(radius, d1 / 2) / d1, min(radius, d2 / 2) / d2
-        out.append((q[0] + (p[0] - q[0]) * k1, q[1] + (p[1] - q[1]) * k1))
-        out.append((q[0] + (s[0] - q[0]) * k2, q[1] + (s[1] - q[1]) * k2))
-    out.append(pts[-1])
-    return out
-
-
-def ortho_route(a, b, radius=14.0, min_run=70.0):
-    """Waypoints for a run that goes across and down, corners rounded.
+def ortho_route(a, b, min_run=70.0):
+    """Waypoints for a run that goes across and down, turning square.
 
     A long diagonal reads as a survey line; a hand-drawn SLD turns at a right
     angle. The run leaves on the axis with the larger gap, turns at the
-    midpoint and arrives square. A short hop stays a straight line, because a
+    midpoint and arrives square, and the corner is a single point so the two
+    segments meet at exactly 90°. A short hop stays a straight line, because a
     jog of a few pixels looks like a mistake, not like a route.
     """
     ax, ay = a
@@ -1200,7 +1181,7 @@ def ortho_route(a, b, radius=14.0, min_run=70.0):
         corners = [(ax + dx / 2, ay), (ax + dx / 2, by)]
     else:
         corners = [(ax, ay + dy / 2), (bx, ay + dy / 2)]
-    return _chamfer([a] + corners + [b], radius)[1:-1]
+    return corners
 
 
 def _project(px, py, ax, ay, bx, by):
@@ -1531,8 +1512,8 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
         else:
             bends_here = list((bends or {}).get((parent_code, code), []))
         surveyed = [P(_metres(lat, lon, lat0, lon0)) for _, lat, lon in bends_here]
-        if surveyed:                  # a recorded shape: its corners, rounded
-            route = _chamfer([src_pt] + surveyed + [tap[code]], 10)[1:-1]
+        if surveyed:                  # a recorded shape: its corners, as surveyed
+            route = surveyed
         else:                         # nothing recorded: right angles, not a diagonal
             route = ortho_route(src_pt, tap[code])
         d.edge(src_id, tap_id[code], style, points=route or None)
