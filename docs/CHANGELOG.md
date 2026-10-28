@@ -1,6 +1,6 @@
 # Changelog — MESCOM SLD tool
 
-Every change made in the session of **26–27 October 2026**, newest entry on top.
+Every change made in the session of **26–28 October 2026**, newest entry on top.
 This covers the whole arc: reading the two Word documents, choosing the tool, and building the
 generator up to its current state.
 
@@ -49,7 +49,7 @@ leaves the trunk. The two sheets of a feeder can be read against each other.
 
 ---
 
-## 2026-10-27 · an RMU is drawn as its five ways
+## 2026-10-27 — an RMU is drawn as its five ways
 
 A five-way unit was one box with its cabled ways named under it. It is now a box with **a terminal
 per way**, because "which way does this cable leave by" is the question an RMU exists to answer, and

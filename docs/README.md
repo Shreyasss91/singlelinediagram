@@ -3,9 +3,11 @@
 Generates distribution **single line diagrams** for the Unit-4 / CSD-2 feeders directly from the
 DTC master workbook, as editable `.drawio` files.
 
-Instead of drawing 60–140 DTC symbols by hand in Word, you keep the data in one spreadsheet and
-the diagram is derived from it. Every DTC code, name, kVA rating, count and — in geographical
-mode — position comes from the spreadsheet, so the sheet and the register can never disagree.
+Instead of drawing 60–140 DTC symbols by hand in Word, you keep the data in two spreadsheets and
+the diagram is derived from them. Every DTC code, name, kVA rating, count and — in geographical
+mode — position comes from the master, and the tree both layouts are drawn from (who feeds whom,
+which spur, which RMU terminal) comes from the connection workbook, so the sheet and the record can
+never disagree.
 
 ---
 
@@ -41,7 +43,7 @@ Commands are run from the root, too.
 |---|---|
 | `sld_generator.py` | The whole tool. Reads the workbook, writes `.drawio` files, optionally renders a PNG preview. |
 | `field_data/DTC DETAILS U4.xlsx` | The DTC master. **The script reads this file from here by default.** |
-| `field_data/TOPOLOGY.xlsx` | Your copy of the connection workbook, and the one you fill in. Kept apart from `template/` so a template rebuild can never overwrite field work. **The `--geo` layout is drawn from this file**; see §8. |
+| `field_data/TOPOLOGY.xlsx` | Your copy of the connection workbook, and the one you fill in. Kept apart from `template/` so a template rebuild can never overwrite field work. **Both layouts are drawn from this file**; see §8. |
 | `docs/README.md` | This manual. |
 | `docs/CHANGELOG.md` | Every change, newest first. |
 | `docs/SESSION_HANDOFF.md` | Where the work stands, and what is next. |
@@ -192,7 +194,7 @@ Use `--outdir` to choose another folder, or `--out` for one specific file.
 | `--extent cluster\|all` | geo only: fit the node network (default) or include the MUSS in the fitted area |
 | `--route file.csv` | surveyed pole coordinates for the trunk (see §7); the run follows these points exactly |
 | `--topology file.xlsx` | use a different connection workbook (default `field_data/TOPOLOGY.xlsx`) |
-| `--no-topology` | ignore the connection workbook and infer the trunk again (see §6) |
+| `--no-topology` | ignore the connection workbook: infer the trunk (see §6) and draw the schematic in code order |
 | `--master path.xlsx` | use a different workbook |
 | `--preview` | also write a PNG next to the `.drawio` |
 | `--template` | rewrite `template/MESCOM_SLD_TEMPLATE.drawio` |
@@ -631,7 +633,7 @@ Nothing in the code is feeder-specific.
 
 **You want the real trunk and spurs instead of a guess**
 Fill `field_data/TOPOLOGY.xlsx` (§8): copy the template there once, then correct `PARENT_ID`,
-`SPUR_ID` and `WAY` per feeder. The sheet is drawn from it on the next `--geo` run, and every row
+`SPUR_ID` and `WAY` per feeder. Both sheets are drawn from it on the next run, and every row
 you leave `INFERRED` is still an MST guess worth correcting.
 
 **You want to prove the drawing matches the register**
@@ -643,23 +645,29 @@ come from the same rows as the spur lines.
 
 ## 11. Known limitations
 
-* **Topology is inferred, not surveyed.** The master has no parent/child data, so the trunk can take
-  a shortcut the real line does not take and a lateral can be guessed wrongly. Fill
-  `field_data/TOPOLOGY.xlsx` (§8) to fix it, or use `--route` for a surveyed trunk.
-* **A guess is drawn dashed, but it is still a guess.** A node with no `PARENT_ID`, an RMU whose tap
-  pole is not recorded, a DTC the workbook has no row for: each is attached to the nearest node that
-  is not downstream of it. Read the console before signing the sheet — every guessed link is listed.
+* **A tree the workbook does not record is inferred.** For a feeder with no rows, or with
+  `--no-topology`, the master has no parent/child data at all, so the trunk is a minimum spanning
+  tree: it can take a shortcut the real line does not take and a lateral can be guessed wrongly.
+  Fill `field_data/TOPOLOGY.xlsx` (§8), or use `--route` for a surveyed trunk. The four current
+  feeders have their tree recorded, so this is the `--no-topology` path and the path a new feeder
+  takes until its rows exist.
+* **A guess is drawn dashed, but it is still a guess.** A node with no `PARENT_ID`, a DTC the
+  workbook has no row for: each is attached to the nearest node that is not downstream of it, and
+  the console lists it. Read the console before signing the sheet.
 * **Dense areas need a hand.** On MRS F1 the DTCs are 48 m apart, which is ~46 px on A3, while a
   label is 100 px wide. The label placement minimises overlap but cannot eliminate it; the tightest
   corner will still need a nudge in draw.io. F13 and F22 have plenty of room.
-* **GOS is still manual.** Gang operated switches are not in the workbook; drop them in from the
-  library by hand. RMUs *are* placed automatically, from sheet `NON DTC NODES`.
-* **RMU attachment is approximate.** An RMU is drawn at its surveyed position but connected to the
-  nearest point of an *inferred* trunk; with a real `--route` or a completed topology workbook both
-  ends become correct.
-* **RMU ways are not drawn yet.** The box says `5-way`, but the drawing does not show five terminals
-  or which cable lands on which one — that needs the topology workbook to be read (§8). Which way each
-  cable uses is not recorded in the master at all, so it cannot be guessed.
+* **A switch state is drawn, not solved.** A GOS with `NORMALLY = NO` shows an open blade and its
+  downstream DTCs and kVA, and a `RMU WAYS` way marked `NO` carries `NO` on its terminal — but
+  neither de-energises anything or re-routes a feed. The drawing is the record, not a load flow.
+* **A blank `NORMALLY` is drawn closed.** Closing is the assumption a radial feeder is operated
+  under, and every run says so, but it is an assumption rather than a reading.
+* **RMU attachment is approximate.** No RMU has a `PARENT_ID` yet, so each is drawn at its surveyed
+  position and joined to the nearest defensible node with a dashed link. The run names each one
+  (`links : 2 guessed, drawn dashed - RMU-GANGOTHTI-COLLEGE, RMU-KOTE-ROAD`); record the tap pole and
+  the guess disappears.
+* **Five ways is a fixed list.** `ODin`, `ODout`, `VL1`–`VL3` are what `VALID_CHILD_WAYS` holds; a
+  two- or four-way unit would need the constant, the template ranges and §8 changed.
 * **Long names are cropped** to 22 characters on the sheet. The full name stays in the workbook.
 * **kVA categories in the summary table** are fixed at 25/63/100/200/250 plus any other value found
   in the data.

@@ -31,6 +31,13 @@
 > verification. The reason was a reported defect: on `Mandli F13` the RMU, `GOS-01` and `P-001` were
 > absent from the sheet and `SCD-10` appeared fed from two DTCs, because the layout could only read
 > the master and had to infer the tree.
+>
+> **Update 8 (28 October 2026):** four drawing steps landed, one commit each — runs are routed at
+> right angles with rounded corners; a `GOS` shows `NORMALLY` with the load behind an open point
+> named; an RMU is drawn as **five terminals** with the empty ones visible; and **the schematic is
+> drawn from the same tree** (depth-first order, `from <parent>` under each box, equipment symbols,
+> spur tags at the branch point). §5 and §7 below describe the current behaviour; §9 is the updated
+> list of what is left.
 
 ---
 
@@ -41,12 +48,13 @@ by hand in Word — hundreds of loose shapes per sheet. This session replaced th
 generator: **two spreadsheets in, an editable `.drawio` single line diagram out**, in two layouts
 (schematic and geographical).
 
-The tool works, and the geographical sheet is now a *drawing of the connection record* rather than a
-likeness of it. All eight sheets were regenerated on 27 October 2026 and pass structural validation.
-MUSS and RMU positions come from the master's `NON DTC NODES` sheet; parents, poles, the GOS, the
-RMU's ways and bend points come from `field_data/TOPOLOGY.xlsx`. The open items are data clean-up in
-that workbook (three RMUs without a tap pole, one stale `RMU WAYS` row), the remaining missing GPS,
-and pole-level detail for the feeders that still have none.
+The tool works, and **both** sheets are now drawings of the connection record rather than likenesses
+of it: the geographical sheet draws it as lines, the schematic as order. All eight sheets were
+regenerated on 28 October 2026 and pass structural validation. MUSS and RMU positions come from the
+master's `NON DTC NODES` sheet; parents, poles, the GOS, the RMU's terminals, the spur tags and the
+bend points come from `field_data/TOPOLOGY.xlsx`. The open items are data clean-up in that workbook
+(three RMUs without a tap pole, one stale `RMU WAYS` row, a blank `NORMALLY` on `GOS-01`), the
+remaining missing GPS, and pole-level detail for the feeders that still have none.
 
 ---
 
@@ -54,17 +62,17 @@ and pole-level detail for the feeders that still have none.
 
 | File | Size | Role |
 |---|---|---|
-| `sld_generator.py` | ~97 KB / 2100 lines | The tool. Single file, no local packages. |
+| `sld_generator.py` | ~110 KB / 2400 lines | The tool. Single file, no local packages. |
 | `field_data/DTC DETAILS U4.xlsx` | 51 KB | Master workbook — the register of record, read by default. |
-| `field_data/TOPOLOGY.xlsx` | 36 KB | The connection workbook the user fills in. **Read by `--geo`; never written by the tool.** |
+| `field_data/TOPOLOGY.xlsx` | 37 KB | The connection workbook the user fills in. **Read by both layouts; never written by the tool.** |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | 17 KB | Blank A3 sheet + symbol library, two tabs. |
 | `template/TOPOLOGY TEMPLATE.xlsx` | 28 KB | The blank connection workbook (`--topology-template`). |
 | `template/route_template.csv` | <1 KB | Format sample for `--route` (values are invented). |
-| `docs/README.md` | 36 KB | User-facing manual. |
-| `docs/TOPOLOGY_DATA_REQUIREMENTS.md` | 26 KB | The field specification for the connection data. |
-| `docs/CHANGELOG.md` | 35 KB | Every change, newest first. |
-| `docs/SESSION_HANDOFF.md` | 16 KB | This document. |
-| `CLAUDE.md` | 14 KB | Working guide for an agent picking the repository up. |
+| `docs/README.md` | 41 KB | User-facing manual. |
+| `docs/TOPOLOGY_DATA_REQUIREMENTS.md` | 27 KB | The field specification for the connection data. |
+| `docs/CHANGELOG.md` | 45 KB | Every change, newest first. |
+| `docs/SESSION_HANDOFF.md` | 24 KB | This document. |
+| `CLAUDE.md` | 15 KB | Working guide for an agent picking the repository up. |
 | `outputs/<date>/*.drawio` + `.png` | — | Generated sheets, one folder per run day, git-ignored. |
 
 Latest output folder `outputs\2026-10-27\`: four geographical sheets (`MRS F1`, `Mandli F13`,
@@ -104,18 +112,21 @@ Dependencies: `openpyxl` (required), `pymupdf` (only for `--preview`). Both inst
 One file, top-to-bottom:
 
 ```
-constants & styles      L1–100    page size, geometry, draw.io style strings
-data helpers            L108–200  _txt, _num, _kva, crop_name, read_nodes, find_station,
-                                  assign_nodes_to_feeders, read_master, pick
-diagram model           L180–242  Page (vertex/edge emitters), Workbook (multi-page → XML)
-sheet furniture         L244–336  sheet_header, summary_table, unpositioned_block,
-                                  scale_bar, _overlaps, _clamp_label, place_label
-schematic layout        L339–397  choose_grid, build_schematic
-geo helpers             L400–498  clean_points, _metres, prim, tree_ends, read_route, _project
-geo layout              L501–706  build_geo
-template                L709–766  build_template
-preview                 L769–831  preview (PyMuPDF re-draw of the same coordinates)
-CLI                     L834+      main
+constants & styles      L52–160   page size, geometry, draw.io style strings
+data helpers            L164–303  _txt, _num, _kva, crop_name, read_nodes, find_station,
+                                  assign_nodes_to_feeders, read_master, _norm, pick
+connection workbook     L316–643  read_topology, topology_for_feeder, validate_topology,
+                                  topology_items, resolve_links, draw_rmu
+diagram model           L680–744  Page (vertex/edge emitters), Workbook (multi-page → XML)
+sheet furniture         L747–878  sheet_header, summary_table, unpositioned_block, scale_bar,
+                                  _overlaps, _clamp_label, place_label, free_slot
+schematic layout        L881–1057 choose_grid, tree_order, rmu_way_text, build_schematic
+geo helpers             L1060–1214 clean_points, _metres, prim, tree_ends, read_route,
+                                  _chamfer, ortho_route, _project
+geo layout              L1214–1568 build_geo
+templates               L1571–2136 build_template, build_topology_template, _infer_topology
+preview                 L2139–2203 preview (PyMuPDF re-draw of the same coordinates)
+CLI                     L2204+    main
 ```
 
 (Line numbers are as of the handoff; they shift with edits.)
@@ -164,13 +175,22 @@ the reason the tool beats the Word file.
 ### Schematic (`build_schematic`, default)
 
 Vertical distributor at `x = 110`, horizontal laterals from `x = 150` to `1610`, MUSS box at
-`(1370, 100)`, summary table bottom right, `UNPOSITIONED`-free (every DTC is drawn).
+`(1370, 100)`, summary table bottom right, `UNPOSITIONED`-free (every node is drawn).
+
+**Order.** `tree_order()` walks `NODES` depth first from the MUSS in workbook row order, so a parent
+is drawn before its children and a spur's nodes stay together in one run of the grid. Without a
+workbook (`--no-topology`) the register's code order is used. `rmu_way_text()` turns a unit's ways
+into words for the grid (`5-way - out VL1`), and `spurs_at` records the node each spur leaves from.
 
 Grid: `choose_grid(n)` → `per_row = clamp(ceil(n/3), 4, 14)` reduced until the slot width is at
-least 92 px; `rows = ceil(n / per_row)`; row height up to 230 px. 19 DTCs → 7 × 3; 63 → 14 × 5.
+least 92 px; `rows = ceil(n / per_row)`; row height up to 230 px. It counts **nodes**, so 22 nodes on
+`Mandli F13` give 8 × 3 and 70 on `MRS F1` give 14 × 5.
 
-Each DTC: junction dot on the lateral → 30 px stub → 44 × 22 square with the kVA inside → label
-(name over code) 22 px below.
+Each node: junction dot on the lateral → 30 px stub → the symbol for its `TYPE` (44 × 22 square with
+the kVA, a white HT square, a `90 × 24` RMU box, a 6 px pole dot, a 30 × 4 GOS bar) → label 22 px
+below (name over code, then `from <parent>` in 7 px blue) → the spur tag under the node it leaves
+from. A node with no parent is drawn after the trunk and reported once per reason, with its code
+listed. **The row bus is a convention, not wiring:** only the `from` line states a parent.
 
 ### Geographical (`build_geo`, `--geo`)
 
@@ -191,19 +211,25 @@ Each DTC: junction dot on the lateral → 30 px stub → 44 × 22 square with th
 5. **Tap points.** One hidden 3 × 3 vertex per node at its own surveyed page position; lines run
    between tap points (`BENDS` rows become edge waypoints), so a line always marks where the
    equipment is.
-6. **Symbols**, per `TYPE`: `DTC` = 44 × 22 square with the kVA, `HT` = white square, `POLE`/`JUNCTION`
-   = 6 × 6 dot with its code in 6 px text, `GOS` = 30 × 4 bar sitting on the line, `RMU` = 90 × 24 box
-   naming its cabled ways, `MUSS` = source box, `NODE` = DTC-shaped fallback. A boxed symbol that has
-   to move off a crowded spot is placed by `free_slot()` (perpendicular-first for a DTC) and joined
-   back to its tap by a service tap.
-7. `place_label` tries 12 positions per label and scores overlap area against everything already
+6. **Routing.** `ortho_route()` turns every run at right angles — the axis with the larger gap first,
+   turning at the midpoint — and `_chamfer()` cuts each corner back into a 12–14 px curve, because
+   draw.io does not round an explicit polyline. A hop under 70 px stays straight. A recorded bend on
+   a span from the off-map MUSS is dropped rather than dragging the line off the paper.
+7. **Symbols**, per `TYPE`: `DTC` = 44 × 22 square with the kVA, `HT` = white square, `POLE`/`JUNCTION`
+   = 6 × 6 dot with its code in 6 px text, `GOS` = 30 × 4 bar sitting on the line (a lifted hollow
+   blade when `NORMALLY = NO`), `RMU` = `draw_rmu()`'s box with five labelled terminals — filled where
+   a cable lands, hollow and `empty` where not — `MUSS` = source box, `NODE` = DTC-shaped fallback. A
+   boxed symbol that has to move off a crowded spot is placed by `free_slot()` (perpendicular-first
+   for a DTC) and joined back to its tap by a service tap; a cable off an RMU starts at its terminal.
+8. `place_label` tries 12 positions per label and scores overlap area against everything already
    placed (symbols and labels), clamping to the drawing area.
-8. The MUSS box is drawn after the equipment. If including the substation would cost more than 30 %
+9. The MUSS box is drawn after the equipment. If including the substation would cost more than 30 %
    of the scale, the network keeps its own scale and the box is drawn at the page edge in its true
    direction, labelled with the real distance — and, in a workbook run, the root's children hang off
    that drawn box so no line runs past the paper (`--extent all` forces the strict fit instead).
-9. `scale_bar`, north arrow, `unpositioned_block` (naming each node's parent), `summary_table`,
-   `sheet_header` finish the sheet. The subtitle names the source of the shape.
+10. `scale_bar`, north arrow, `unpositioned_block` (naming each node's parent), `summary_table`,
+    `sheet_header` finish the sheet. The subtitle names the source of the shape and, when links were
+    guessed, how many.
 
 Key constants: `GEO_X, GEO_Y, GEO_W, GEO_H = 120, 205, 1460, 735`; `GEO_MAX_SCALE = 3.2 px/m`;
 `DTC_W, DTC_H = 44, 22`; `LBL_W, LBL_H = 100, 26`; `VALID_CHILD_WAYS = (ODout, VL1, VL2, VL3)`;
@@ -243,7 +269,8 @@ Matching rule: feeder names compare case-insensitively with dashes and repeated 
 `Mandli F1`. A MUSS row is matched to the master's station text by name containment
 (`_station_matches`), which is how `110/11KV MANDLI` finds `110/11KV MANDLI MUSS`.
 
-Connection workbook `field_data/TOPOLOGY.xlsx`, read by `--geo`. Columns are addressed by position:
+Connection workbook `field_data/TOPOLOGY.xlsx`, read by both layouts. Columns are addressed by
+position:
 `NODES` A–O = `NODE_ID` 0, `TYPE` 1, `NAME` 2, `FEEDER` 3, `LAT` 4, `LONG` 5, `PARENT_ID` 6,
 `SPUR_ID` 7, `WAY` 8, `KVA` 9, `PHASE` 10, `NORMALLY` 11, `CONDUCTOR` 12, `BASIS` 13, `REMARKS` 14;
 `RMU WAYS` A–G = `RMU_ID` 0, `WAY` 1, `DIRECTION` 2, `CONNECTED` 3, `NORMALLY` 4, `LABEL` 5,
@@ -253,8 +280,10 @@ Connection workbook `field_data/TOPOLOGY.xlsx`, read by `--geo`. Columns are add
 `EXAMPLE` and `LISTS` are ignored by the reader; `READ ME` is documentation.
 
 Coverage after the user's first pass: MRS F1 70 rows, Mandli F22 32, `Mandli F13` 22 (21 + one row
-spelled `MANDLI F13`), Mandli F3 5 — 131 rows, of which `SOURCE` 2, `INFERRED` 114, `UNKNOWN` 15.
-Only `Mandli F13` has hand-added equipment so far: `GOS-01`, `P-001` and `RMU-RAMANNA-SHETTY-PARK`.
+spelled `MANDLI F13`), Mandli F3 5, two rows with no feeder at all — 131 rows, of which `SOURCE` 2,
+`INFERRED` 114, `UNKNOWN` 15. Hand-added equipment: three `RMU` rows (`KOTE-ROAD` and
+`GANGOTHTI-COLLEGE` on MRS F1, `RAMANNA-SHETTY-PARK` on F13), plus `GOS-01` and `P-001` on F13.
+Three `RMU WAYS` units and 23 `SPURS` rows are recorded; `BENDS` is still empty.
 
 ---
 
@@ -279,9 +308,26 @@ Only `Mandli F13` has hand-added equipment so far: `GOS-01`, `P-001` and `RMU-RA
   `--template`, `--topology-template --out <temp>` (129 NODES rows rebuilt, template untouched).
 * **Console**: warnings name sheet, row and column (`NODES!6 …`, `RMU WAYS!14 …`).
 * **Not verified**: opening the `.drawio` files in draw.io itself — still no installation here. The
-  XML is the same schema the earlier sheets used and the earlier ones opened, but the first human
-  open remains the acceptance test. Drawing five RMU terminals (as opposed to naming the cabled
-  ways) is also not implemented.
+  XML is the same schema the earlier sheets used and the earlier ones opened; the chamfered
+  polylines `_chamfer()` writes are the newest shape not yet seen in a browser or the desktop app.
+
+### Verification performed (28 October 2026)
+
+* **Structure**: all eight `outputs\2026-10-27\*.drawio` files regenerated from
+  `field_data/TOPOLOGY.xlsx` as it stands, then parsed with ElementTree: **0 dangling connectors,
+  0 shapes off the A3 page** in each. Vertices/edges: MRS F1 247/122 geo and 244/145 schematic,
+  F22 112/58 and 122/67, F13 100/36 and 86/45, F3 37/8 and 34/12.
+* **Routing**: every edge's waypoints measured against its own endpoints — **0 diagonal segments
+  longer than 71 px** across 224 runs. 58 runs carry chamfer waypoints; the rest are straight because
+  they are short hops or already on one axis, which is the rule.
+* **GOS**: `GOS-01` is blank in the workbook, so every F13 run prints `NORMALLY is blank - drawn
+  closed; record NC or NO - 14 DTC(s) / 1951 kVA recorded downstream`. On a throwaway copy with
+  `NO`, the blade lifts off the line and the label carries `(open)`.
+* **RMU terminals**: F13's `VL1` terminal is filled and `P-001`'s cable leaves from it, the other
+  three are hollow and `empty`; a `--no-topology` run keeps the plain `5-way` box.
+* **Schematic**: F13 comes out 8 nodes × 3 laterals (22 nodes), MRS F1 14 × 5 (70 nodes); every box
+  carries its `from` line, the RMU its ways, the five MRS F1 HT services their kVA, and the spur tags
+  sit under the nodes the spurs leave from. The no-parent report is one line per reason.
 
 ---
 
@@ -313,12 +359,15 @@ These are reported by the tool but must be fixed at source:
 3. **Poles.** Only `P-001` exists. A pole row per branch point is what makes a spur leave the trunk
    at the right place — and it is the input the tool cannot infer.
 4. **`BENDS`** for the runs that visibly cut across a block: two or three bend points per lateral.
-5. **Five drawn RMU terminals**, and a GOS symbol that shows `NORMALLY` open or closed. Both are
-   drawing work; the data is already in the workbook.
-6. **The same connection tree on the schematic layout**, so the two sheets of a feeder agree.
-7. **Fix `SCD-68`** (`3.926426` → `13.926426`) and the duplicate coordinate pairs at source; MRS F1
+5. **Record `NORMALLY` on the GOS rows.** `GOS-01` is blank, so every F13 run says it was drawn
+   closed as an assumption. One cell (`NODES!L131`, `NC` or `NO`) removes the warning and, if `NO`,
+   makes the drawn break real.
+6. **Fix `SCD-68`** (`3.926426` → `13.926426`) and the duplicate coordinate pairs at source; MRS F1
    gains one positioned DTC and loses one `UNPOSITIONED` line.
-8. **HT coordinates** if HT services should appear on the geographical sheet.
+7. **HT coordinates** if HT services should appear on the geographical sheet; without a `LAT`/`LONG`
+   they are drawn on the schematic only, after the trunk.
+8. **A per-spur count in the summary table**, from the same rows as the spur lines — the last place
+   where the sheet still says "feeder" where the reader wants "lateral".
 
 ---
 
@@ -371,6 +420,14 @@ These are reported by the tool but must be fixed at source:
 * **A `--geo` sheet is only as good as `PARENT_ID`.** A wrong parent now draws a wrong line but no
   warning — `BASIS` is what tells you a row is still a draft, and nothing on the sheet shows it yet.
   Check `--list` before trusting a drawing.
+* **Both layouts now read the workbook**, so `--no-topology` changes two things at once: the geo
+  links become an MST *and* the schematic falls back to code order. Compare two runs with the same
+  switches.
+* **A node with no `PARENT_ID` is reported differently by each sheet.** The geo sheet attaches it to
+  the nearest node and dashes the link; the schematic has no line to dash, so it draws the node after
+  the trunk with no parent named. Neither is a fix: the cell is the fix.
+* **The row bus on the schematic is not wiring.** Moving a box in draw.io does not change what feeds
+  it; the `from` line under it does, and that comes from `PARENT_ID`.
 * **The MUSS is excluded from the fit** (`net_codes`), on purpose. If a future change puts a `MUSS`
   row inside the load centre, the drawing will still reserve the off-map treatment for it; the
   extent rule is what decides.
