@@ -6,7 +6,47 @@ generator up to its current state.
 
 ---
 
-## 2026-10-28 · Newest — the corners are square again
+## 2026-10-28 · Newest — an RMU is a panel divided into its ways
+
+The unit used to be a box with five terminals hung out on short leaders. It is now **one panel split
+inside** into one portion per way — `ODin` at the left end, `ODout` at the right, the VLs between — so
+the symbol reads as the switchgear it stands for, and a three-way unit is three portions, not five.
+
+### Added
+- **`rmu_way_order(reg)`** — the ways in the order a panel is read: `ODin`, the VLs in register order,
+  `ODout`. The `RMU WAYS` row count decides how many there are, so a unit recorded with `ODin`, `VL1`
+  and `ODout` draws three portions and a full register draws five. With no register it assumes five.
+- **`ST_COMP_ON` / `ST_COMP_OFF` / `ST_RMU_BOX`** — a filled portion for a way with a cable on it, a
+  white one for a spare, and the panel outline drawn over both.
+
+### Changed
+- **`draw_rmu()` draws portions instead of terminals.** Each portion names its way and, on a second
+  line, its state (`ODin NC`) or `empty`, in 6 px inside the panel. A portion is `34 × 26` px, so a
+  five-way panel is 170 px wide — the 7 px terminal square and its 15 px leader are gone.
+- **A cable leaves by the portion's edge that faces the node.** The ring ways leave at their end of
+  the panel; a VL leaves by its top or its bottom, whichever side the node is on, because its sides
+  are dividers. A feed into `ODin` enters square to the end, top or bottom, and a short run still turns
+  rather than cutting across the portions.
+- **A cable off a panel starts at its portion**, not at the unit's box: the anchors are created by the
+  link that uses them, so the panel carries no spare connection points.
+- **The schematic counts the ways too** — `rmu_way_text()` now says `3-way` for a three-row register
+  instead of always `5-way`, and `build_schematic()` takes `ways` again (this time it reads it).
+- README §6 and §5, `TOPOLOGY_DATA_REQUIREMENTS.md` §12 and CLAUDE.md follow.
+
+### Regenerated
+- Regenerated after this change: `outputs\2026-10-27\` (all eight sheets and their PNGs).
+
+### Notes
+- Verified against a throwaway copy of the workbook with `VL2`/`VL3` deleted from `RMU-KOTE-ROAD`:
+  the panel draws `ODin | VL1 | ODout` and the schematic says `3-way`. The user's workbook was not
+  edited; the copy was a temp file passed with `--topology`.
+- On `MRS F1` two short hops between DTCs still pass behind a panel where the unit stands between
+  them — the same thing that happens to a DTC box in that dense area (32 such crossings on the sheet).
+  Moving the symbol in draw.io is the fix; routing around every symbol is not a feature yet.
+
+---
+
+## 2026-10-28 — the corners are square again
 
 The routing stays orthogonal; the chamfer that used to cut each corner back into a short diagonal is
 gone, so a run turns at a true right angle.

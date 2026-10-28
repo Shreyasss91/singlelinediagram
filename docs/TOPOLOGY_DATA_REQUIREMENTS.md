@@ -360,13 +360,14 @@ Service connections and meter data do not affect the feeder diagram.
 |---|---|
 | `PARENT_ID` | each node is joined to its parent and to nothing else; a node parented to `SCD-36` no longer appears fed from a neighbour that happened to be nearer. On the schematic it is the `from SCD-36` line under the box, and the rows come out in that tree's depth-first order |
 | `SPUR_ID` | the trunk (`T`) is drawn heavier than a lateral (`S1`, `S2`…); on the schematic a spur's nodes stay together in one run of the grid |
-| `TYPE` | the symbol follows it on both sheets: dot for a `POLE`, bar for a `GOS`, box for an `RMU`, square with the kVA for a `DTC`, white square for an `HT`, source box for the `MUSS` |
-| `NODES!WAY` | each child's cable lands on its own terminal (`draw_rmu()` fills it, the run leaves from it), so the ring can be followed off the sheet |
+| `TYPE` | the symbol follows it on both sheets: dot for a `POLE`, bar for a `GOS`, a divided panel for an `RMU`, square with the kVA for a `DTC`, white square for an `HT`, source box for the `MUSS` |
+| `RMU WAYS` row count | how many portions the panel is divided into: three rows draw `ODin | VL1 | ODout`, five draw the VLs between the two ring ways. Delete a spare way's row and the panel narrows |
+| `NODES!WAY` | each child's cable lands on its own portion (`draw_rmu()` fills it, the run leaves from its edge), so the ring can be followed off the sheet |
 | `BENDS` | that span is routed through the corners instead of run straight (**geographical sheet only** — a grid has no span to bend) |
 | `SPURS!LABEL` | printed at the branch point on both sheets (`S1 Chor Bazar lateral`) |
 | `LAT`/`LONG` on a non-DTC row | the pole, GOS or RMU appears on the geographical sheet, which the master alone cannot show; the schematic draws it without a position |
 | `NORMALLY` on a `GOS` | the switch is drawn open or closed as recorded — a lifted blade on the sheet, `(open)` after the code on the grid — and the run names the DTCs and kVA standing behind an open point |
-| `RMU WAYS!NORMALLY` | carried on the terminal's label (`VL1 NO`) and the load behind an open way named; it does not re-route anything |
+| `RMU WAYS!NORMALLY` | carried inside the way's portion (`VL1 NO`) and the load behind an open way named; it does not re-route anything |
 | a gap | `UNPOSITIONED` still holds anything without coordinates, naming the parent it hangs off — nothing disappears |
 
 Still open, in the order the data pays for it:

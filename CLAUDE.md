@@ -70,7 +70,7 @@ outputs/<date>/                  generated .drawio + PNG (ignored)
    there) and `build_geo()` (projection, then either the workbook's parent links or an MST or
    `--route`). Both return `(Workbook, info)`; `info` feeds the console summary. `build_geo()` order
    matters: page transform, then one tap point per node, then the symbols (which may move off a
-   crowded spot — `draw_rmu()` for a five-way unit and its terminals), then the MUSS box, then the
+   crowded spot — `draw_rmu()` for a unit's divided panel), then the MUSS box, then the
    lines — so a line meets the position the survey recorded, not the box that had to be moved.
    `build_schematic()` draws the node's parent under its box (`from SCD-01`) and the spur tag at the
    branch point, because a grid has no line to say either; the row bus is a convention, not a claim.
@@ -99,8 +99,13 @@ their exit way in `NODES!WAY` (`ODout`/`VL1`–`VL3`, never `ODin`). Only `ODin`
 any outgoing way, `ODout` included, may be empty — `CONNECTED = N` with a blank `NORMALLY`.
 `_way_cabled()` is the template default for a freshly built workbook (only `ODin` starts `Y`); the
 drawing decides separately in `draw_rmu()` — filled when a child names the way or the register says
-`CONNECTED = Y`, hollow and labelled `empty` otherwise. Both rules exist because the template holds
+`CONNECTED = Y`, white and labelled `empty` otherwise. Both rules exist because the template holds
 the register and the drawing holds the connections.
+
+**The panel's portion count comes from the register.** `rmu_way_order(reg)` puts `ODin` first, the
+VL rows in `VALID_CHILD_WAYS` order, `ODout` last; `draw_rmu()` then draws one `34 × 26` portion per
+entry. A three-row register is a three-portion panel, so do not reintroduce a fixed five: the count
+is what the writer recorded, and `--no-topology` is the only place that assumes five.
 
 **NODES is the tree, RMU WAYS is a register.** When the two disagree the drawing follows `NODES` —
 a child parented to an RMU is drawn on the way it names — and the register row is reported. Do not
@@ -181,10 +186,14 @@ Verification scripts are throwaway — put them in the temp folder, not the repo
   (`RMU-RAMANNA-SHETTY-PARK` / `VL1`) says `N` while `P-001` leaves by `VL1`, so every F13 run prints
   the warning. That is the workbook, not the code. Compare with the file's own `git diff` before
   blaming the reader.
-- **An RMU is drawn as its five ways, and only the terminals know.** `draw_rmu()` labels each
-  terminal from `NODES!WAY` and `RMU WAYS!CONNECTED`; nothing else names the ways. A `--no-topology`
-  run has neither, so it draws the plain `5-way` box on purpose — do not "fix" that into five hollow
-  terminals, which would state that a unit nobody has surveyed is unused.
+- **An RMU is a panel of its ways, and only its portions know.** `draw_rmu()` names each portion from
+  `NODES!WAY` and `RMU WAYS!CONNECTED`, and divides the panel into as many portions as the register
+  has rows; nothing else names the ways. A `--no-topology` run has neither, so it draws the plain
+  `5-way` box on purpose — do not "fix" that into five empty portions, which would state that a unit
+  nobody has surveyed is unused.
+- **The panel's cables land on portions, not on the box.** Each link creates the 3 × 3 anchor it needs
+  on the portion edge facing the node, so an anchor that exists is an anchor in use. Adding a spare
+  anchor in `draw_rmu()` puts a dot on the panel for nothing.
 - **Line endings.** Git reports `LF will be replaced by CRLF` on this Windows checkout. Expected;
   leave it alone.
 - **This repository is public.** The master already contains real DTC names, meter numbers, GPS and
@@ -224,9 +233,10 @@ step separately. **Do not push unless the user asks.**
 
 ## Current state
 
-Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`) drawn as five terminals,
-two layouts, `--route`, both templates, docs, and **both layouts drawn from the connection
-workbook** — `--geo` with parent links, poles, the GOS and its state, the RMU's terminals,
+Done: five-way RMUs (`NODES!WAY`, `RMU WAYS`, empty ways via `CONNECTED`) drawn as a panel divided
+into its ways, three-way units supported from the same register, two layouts, `--route`, both
+templates, docs, and **both layouts drawn from the connection
+workbook** — `--geo` with parent links, poles, the GOS and its state, the RMU's portions,
 orthogonal runs with square corners, `BENDS` shaping a span and spur tags from `SPURS!LABEL`; the
 schematic in depth-first order with `from <parent>` under each box, equipment symbols and a spur tag
 at the branch point. Validation separates errors from warnings. Known limitation list is

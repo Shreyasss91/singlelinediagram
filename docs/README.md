@@ -233,8 +233,9 @@ from SCD-01
 ```
 
 A `POLE` is a dot with its code, the GOS a bar (open when `NORMALLY = NO`), and the RMU a box whose
-second line names the ways cables arrive on (`5-way - out VL1`), so an equipment row the master does
-not hold still has its symbol. A spur tag (`S1`, plus the name from `SPURS!LABEL`) is printed under
+second line names its ways in words (`5-way - out VL1`; a three-way unit says `3-way`), so an
+equipment row the master does not hold still has its symbol even where the grid has no room for a
+panel. A spur tag (`S1`, plus the name from `SPURS!LABEL`) is printed under
 the node the spur leaves from, not under its first box. A node with no `PARENT_ID` — or one the
 workbook has no row for — is drawn after the trunk with no parent named, and the run says how many
 and which:
@@ -283,18 +284,18 @@ connection workbook (§8) records it. What the generator does:
    it on a short tap, so a run never crosses a transformer box.
 5. **Draws each node as the symbol for its `TYPE`.** A DTC is a square with its kVA inside, an HT
    service a white square, a pole a dot carrying its code, the GOS a bar sitting on the line, the
-   MUSS the source box, and the RMU its box with **a terminal per way**. A symbol that has to move
-   off a crowded spot is joined back to its own point by a thin service tap, so the line always
-   marks the surveyed position.
+   MUSS the source box, and the RMU its panel **divided into one portion per way**. A symbol that has
+   to move off a crowded spot is joined back to its own point by a thin service tap, so the line
+   always marks the surveyed position.
 
-   **An RMU shows its five ways.** `ODin` — the way the unit is fed through — is drawn on the side
-   the feed arrives from, and the four outgoing ways (`ODout`, `VL1`–`VL3`) in register order down
-   the other side. Each terminal is labelled: a way a cable lands on is a **filled** square named
-   with its way and switch state (`VL1 NC`), and a way with nothing on it is **hollow** and named
-   (`ODout empty`), so a spare way cannot be read as a row missing from the workbook. A cable off an
-   RMU starts at the terminal the workbook names in `NODES!WAY`, not at the box, so the sheet shows
-   which way a run leaves by. With no workbook the unit is drawn as a plain `5-way` box instead —
-   nothing is known about its ways.
+   **An RMU shows its ways inside the symbol.** `ODin` is the left end of the panel, `ODout` the
+   right, and the VLs sit between them in register order — a five-way unit is five portions, a
+   three-way one is three. A way a cable lands on is **filled** and named with its way and switch
+   state (`ODin NC`); a way with nothing on it is white and named `empty`, so a spare way cannot be
+   read as a row missing from the workbook. A cable off an RMU starts at the portion the workbook
+   names in `NODES!WAY`, on the edge facing the node it feeds, so the sheet shows which way a run
+   leaves by. With no workbook the unit is drawn as a plain `5-way` box instead — nothing is known
+   about its ways.
 
    **A GOS shows its state.** `NODES!NORMALLY` decides: `NC` (or blank) is a solid bar across the
    line, `NO` is a hollow blade hinged on the line and lifted off it, labelled `GOS-01 (open)`. The
@@ -365,27 +366,36 @@ dense cluster.
 
 ### RMUs
 
-Every RMU that belongs to this feeder is drawn as a `90 × 24` box marked `RMU` at its surveyed
-position, its name underneath, and **one terminal for each of its five ways** — a small square on a
-short leader out of the box, labelled with the way:
+Every RMU that belongs to this feeder is drawn **split into its ways**: one panel on the surveyed
+position, divided inside into one portion per way, in the order a unit is read — `ODin` at the left
+end, `ODout` at the right, the VLs between:
 
 ```
-   ODin NC  □──[ RMU ]──□ ODout empty
-                       □ VL1 NC
-                       □ VL2 empty
-                       □ VL3 empty
+┌──────┬──────┬───────┬───────┬────────┐
+│ ODin │ VL1  │ VL2   │ VL3   │ ODout  │
+│  NC  │      │ empty │ empty │ empty  │
+└──────┴──────┴───────┴───────┴────────┘
+     RAMANNASHETTY PARK RMU
 ```
 
-`ODin` sits on the side the feed arrives from; the four outgoing ways (`ODout`, `VL1`–`VL3`) run in
-register order down the other side. A way a cable lands on is a **filled** square labelled with its
-way and, where the register records one, its switch state (`VL1 NC`); a way with nothing on it is
-**hollow** and labelled `empty`. `NODES!WAY` says which cables land where (§8): a child whose
-`PARENT_ID` is this RMU names the way it leaves by, so the ring can be followed off the sheet, and
-that child's line is drawn from its terminal — not from the box — so the sheet shows which way a run
-goes.
+Each portion is `34 × 26` px, so a five-way unit is a 170 px panel and a three-way one is 102 px. The
+number of portions follows the `RMU WAYS` register, not a constant: three rows give `ODin | VL1 |
+ODout`, five give the panel above. A way a cable lands on is **filled** and named with its way, plus
+its switch state where the register records one (`ODin NC`); a way with nothing on it is white and
+named `empty`, so a spare way cannot be read as a row missing from the workbook. `NODES!WAY` says
+which cables land where (§8): a child whose `PARENT_ID` is this RMU names the way it leaves by, and
+its line starts at that portion — not at the panel — so the sheet shows which way a run goes.
+
+A cable leaves or enters by the portion's edge that faces the other end of the run: the ring ways at
+their own end of the panel, a VL at its top or bottom, whichever side the node is on. A middle
+portion's sides are dividers, so a VL has only those two free edges, and a feed into `ODin` comes in
+square to the end or the top or bottom, never across the other portions.
 
 With no workbook (`--no-topology`, or no topology file), the unit is drawn as a plain box marked
-`5-way` under its name: nothing is known about its ways, and five empty terminals would claim it.
+`5-way` under its name: nothing is known about its ways, and five empty portions would claim it.
+
+The schematic layout has no room for a panel in its grid, so there the ways are said in words under
+the box — `5-way - out VL1`, or `3-way - no way out recorded` for a three-way unit.
 
 When the `RMU WAYS` register disagrees with the connections — a way marked `CONNECTED = N` that a
 child leaves by, or `CONNECTED = Y` on a way no child names — the run prints it and draws what
@@ -480,7 +490,7 @@ drawn it takes the rows whose `FEEDER` cell is that feeder, the MUSS above them,
 * joins every node to its `PARENT_ID` — so a DTC fed from `SCD-36` is drawn to `SCD-36` and to
   nothing else;
 * draws the equipment the master does not hold — poles, the GOS and the RMU;
-* draws each of an RMU's five ways as a terminal and lands each cable on the way `NODES!WAY` names;
+* divides an RMU into one portion per recorded way and lands each cable on the way `NODES!WAY` names;
 * bends a span through its `BENDS` rows instead of running it straight;
 * prints `<b>S1</b> Chor Bazar lateral` at the branch point when that spur has a `LABEL` on sheet
   `SPURS`, so the sheet and the spur register read together;
@@ -658,7 +668,7 @@ come from the same rows as the spur lines.
   label is 100 px wide. The label placement minimises overlap but cannot eliminate it; the tightest
   corner will still need a nudge in draw.io. F13 and F22 have plenty of room.
 * **A switch state is drawn, not solved.** A GOS with `NORMALLY = NO` shows an open blade and its
-  downstream DTCs and kVA, and a `RMU WAYS` way marked `NO` carries `NO` on its terminal — but
+  downstream DTCs and kVA, and a `RMU WAYS` way marked `NO` carries `NO` on its portion — but
   neither de-energises anything or re-routes a feed. The drawing is the record, not a load flow.
 * **A blank `NORMALLY` is drawn closed.** Closing is the assumption a radial feeder is operated
   under, and every run says so, but it is an assumption rather than a reading.

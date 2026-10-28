@@ -34,7 +34,8 @@
 >
 > **Update 8 (28 October 2026):** four drawing steps landed, one commit each — runs are routed at
 > right angles with square corners; a `GOS` shows `NORMALLY` with the load behind an open point
-> named; an RMU is drawn as **five terminals** with the empty ones visible; and **the schematic is
+> named; an RMU is drawn as **a panel divided into its ways** (five, or three for a three-way unit);
+> and **the schematic is
 > drawn from the same tree** (depth-first order, `from <parent>` under each box, equipment symbols,
 > spur tags at the branch point). §5 and §7 below describe the current behaviour; §9 is the updated
 > list of what is left.
@@ -62,7 +63,7 @@ remaining missing GPS, and pole-level detail for the feeders that still have non
 
 | File | Size | Role |
 |---|---|---|
-| `sld_generator.py` | ~110 KB / 2400 lines | The tool. Single file, no local packages. |
+| `sld_generator.py` | ~115 KB / 2400 lines | The tool. Single file, no local packages. |
 | `field_data/DTC DETAILS U4.xlsx` | 51 KB | Master workbook — the register of record, read by default. |
 | `field_data/TOPOLOGY.xlsx` | 37 KB | The connection workbook the user fills in. **Read by both layouts; never written by the tool.** |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | 17 KB | Blank A3 sheet + symbol library, two tabs. |
@@ -218,10 +219,12 @@ listed. **The row bus is a convention, not wiring:** only the `from` line states
    off-map MUSS is dropped rather than dragging the line off the paper.
 7. **Symbols**, per `TYPE`: `DTC` = 44 × 22 square with the kVA, `HT` = white square, `POLE`/`JUNCTION`
    = 6 × 6 dot with its code in 6 px text, `GOS` = 30 × 4 bar sitting on the line (a lifted hollow
-   blade when `NORMALLY = NO`), `RMU` = `draw_rmu()`'s box with five labelled terminals — filled where
-   a cable lands, hollow and `empty` where not — `MUSS` = source box, `NODE` = DTC-shaped fallback. A
-   boxed symbol that has to move off a crowded spot is placed by `free_slot()` (perpendicular-first
-   for a DTC) and joined back to its tap by a service tap; a cable off an RMU starts at its terminal.
+   blade when `NORMALLY = NO`), `RMU` = `draw_rmu()`'s panel divided into one `34 × 26` portion per
+   way — `ODin` first, `ODout` last, the VLs between, filled where a cable lands and white `empty`
+   where not — `MUSS` = source box, `NODE` = DTC-shaped fallback. A boxed symbol that has to move off
+   a crowded spot is placed by `free_slot()` (perpendicular-first for a DTC) and joined back to its
+   tap by a service tap; a cable off an RMU starts at the portion, on the edge facing its node, and
+   the anchor for that edge is created by the link that uses it.
 8. `place_label` tries 12 positions per label and scores overlap area against everything already
    placed (symbols and labels), clamping to the drawing area.
 9. The MUSS box is drawn after the equipment. If including the substation would cost more than 30 %
@@ -316,8 +319,8 @@ Three `RMU WAYS` units and 23 `SPURS` rows are recorded; `BENDS` is still empty.
 
 * **Structure**: all eight `outputs\2026-10-27\*.drawio` files regenerated from
   `field_data/TOPOLOGY.xlsx` as it stands, then parsed with ElementTree: **0 dangling connectors,
-  0 shapes off the A3 page** in each. Vertices/edges: MRS F1 247/122 geo and 244/145 schematic,
-  F22 112/58 and 122/67, F13 100/36 and 86/45, F3 37/8 and 34/12.
+  0 shapes off the A3 page** in each. Vertices/edges after the RMU panel: MRS F1 239/121 geo and
+  244/145 schematic, F13 97/37 and 86/45, F22 112/58 and 122/67, F3 37/8 and 34/12.
 * **Routing**: every edge's waypoints measured against its own endpoints on the regenerated geo
   sheets — **58 routed runs, every corner exactly 90°, no diagonal segment on any routed run**. The
   other 166 edges carry no waypoints: service taps, the MUSS feeder, short hops under 70 px and runs
@@ -325,8 +328,10 @@ Three `RMU WAYS` units and 23 `SPURS` rows are recorded; `BENDS` is still empty.
 * **GOS**: `GOS-01` is blank in the workbook, so every F13 run prints `NORMALLY is blank - drawn
   closed; record NC or NO - 14 DTC(s) / 1951 kVA recorded downstream`. On a throwaway copy with
   `NO`, the blade lifts off the line and the label carries `(open)`.
-* **RMU terminals**: F13's `VL1` terminal is filled and `P-001`'s cable leaves from it, the other
-  three are hollow and `empty`; a `--no-topology` run keeps the plain `5-way` box.
+* **RMU panels**: F13's `VL1` portion is filled and `P-001`'s cable leaves from its top edge, the
+  other three are white and `empty`; a `--no-topology` run keeps the plain `5-way` box. A throwaway
+  copy of the workbook with `VL2`/`VL3` deleted from `RMU-KOTE-ROAD` draws `ODin | VL1 | ODout` and
+  the schematic says `3-way`, which is the whole of the three-way support checked end to end.
 * **Schematic**: F13 comes out 8 nodes × 3 laterals (22 nodes), MRS F1 14 × 5 (70 nodes); every box
   carries its `from` line, the RMU its ways, the five MRS F1 HT services their kVA, and the spur tags
   sit under the nodes the spurs leave from. The no-parent report is one line per reason.
