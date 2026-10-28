@@ -935,7 +935,7 @@ def rmu_way_text(used, known):
 
 
 def build_schematic(dtcs, hts, label, station, rmus=(), title_text=None, subtitle=None,
-                    topo=None, root_id=None, spur_labels=None, ways=None):
+                    topo=None, root_id=None, spur_labels=None):
     """One A3 sheet as a grid of laterals hanging off a distributor.
 
     Without a workbook this is the register's rows in code order, which is all a
@@ -2357,7 +2357,7 @@ def main():
     else:
         wb, info = build_schematic(sel, sel_ht, label, station, rmus=rmus,
                                    title_text=args.title, topo=items, root_id=root_id,
-                                   spur_labels=spur_labels, ways=ways)
+                                   spur_labels=spur_labels)
 
     xml = wb.to_xml()
     if args.out:
