@@ -57,7 +57,11 @@
 > Open decisions are listed in its §11. A revision the same day adds the verdict (order plus a
 > pole-number photo, GPS as a pointer only), **§4.1** with the recommended method per feeder and the
 > effort it implies, and **§4.2**, the walk in detail — the per-node record, the return tap at every
-> branch point, and the two modes (full: every pole, fast: pole counts typed).
+> branch point, and the two modes (full: every pole, fast: pole counts typed). A second revision adds
+> **§4.3** (where a node sits: schematic uses no coordinates, `--geo` uses the master's, and a pole
+> needs its own fix because the reader does not interpolate) and **§7.5** (`LAT`/`LONG` are placement,
+> never evidence), and corrects `TOPOLOGY_DATA_REQUIREMENTS.md` §4.1, which had promised interpolation
+> the code does not do.
 
 ---
 

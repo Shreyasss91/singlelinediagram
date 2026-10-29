@@ -106,7 +106,7 @@ A phone does not need a position fix to give most of the value. In decreasing or
 
 | Method | What it gives | Accuracy | Cost | Verdict |
 |---|---|---|---|---|
-| **Order of visit only** | the whole tree, branch points, spurs, RMU ways | exact | free | **the baseline** — no positioning at all |
+| **Order of visit only** | the whole tree, branch points, spurs, RMU ways | exact | free | **the baseline** — no position is needed to decide a parent |
 | **Pole count between taps** | span length ≈ count × 40–50 m; enough for voltage drop and loss | ±10–15 % | free | **do it** — one number per DTC, how a lineman already thinks |
 | **Pole number read off the pole / photo (OCR)** | exact asset identity; decides “two DTCs on one pole” vs “two poles 10 m apart” | exact | free | **do it** — settles arguments for years |
 | **Imagery digitising** (offline satellite tiles, 30–50 cm) | the line traced on the image; bends for the `--geo` sheet | 1–3 m | free | **best geometry in town** — a 4 m lane defeats a 5 m GPS fix, not a 50 cm pixel |
@@ -218,6 +218,45 @@ hand-drawn SLD into the template, 2–4 h per feeder (`TOPOLOGY_DATA_REQUIREMENT
 the right tool for switch state, conductor, phase and anything the drawing gets wrong — not for
 re-typing a tree that already exists on paper.
 
+### 4.3 Where the nodes go on the sheet
+
+The walk decides the tree; the sheet still has to place boxes. The two layouts answer that
+differently, and neither needs the walked fix to be accurate.
+
+**The schematic uses no coordinates at all.** Rows are the depth-first order of the tree, each box
+prints `from <parent>`, and position is the layout's row and column. A node with no `LAT`/`LONG` is
+drawn exactly like one that has them. Nothing about the walk changes this sheet.
+
+**The geographical sheet places symbols at the master's coordinates.** DTC and HT positions come
+from `field_data/DTC DETAILS U4.xlsx`; MUSS and RMU from `NON DTC NODES`. Those are not re-surveyed
+on the walk, and a walked coordinate never overrides the master — `topology_items()` uses the
+master's position and flags a disagreement over 100 m as a moved symbol.
+
+**A pole needs a coordinate of its own to be drawn.** Today a node without usable coordinates is
+listed in the `UNPOSITIONED` box and the link runs to the nearest positioned ancestor, past the
+skipped node; the reader does **not** interpolate it along the span.
+`TOPOLOGY_DATA_REQUIREMENTS.md` §4.1 claimed otherwise and has been corrected. The box grows with
+every entry it holds, so a full-mode walk that left pole coordinates blank would put every pole on
+that list and push it off the sheet. A full-mode walk has three options:
+
+| Option | Effect | Cost |
+|---|---|---|
+| **record the fix at each tap** (the phone takes one anyway) | every pole drawn at its own position; a 5–15 m error is a few millimetres at 1 m/px | free |
+| omit pole rows and parent DTC to DTC | nothing unpositioned; branch points land on transformers | cheaper walk, coarser drawing |
+| implement interpolation in `sld_generator.py` | unpositioned poles drawn on the straight span | a small code change, not made |
+
+The recommendation is the first: **take the fix at every tap, and never let it decide anything.**
+A 5 m error on a pole moves a dot; a 5 m error used as a distance test moves a whole lateral. That
+is the distinction this document rests on — GPS is **placement**, not evidence — and it is why
+recording a coordinate is compatible with everything in §3.
+
+`BASIS = SURVEYED` describes the parent, not the position. §7.5 proposes a column so the provenance
+of a coordinate can be read separately from the confidence in the tree.
+
+**Where the line bends, spend points on bends.** A straight span between two positioned nodes is the
+default; a corner that matters is a `BENDS` row on that span, and traced imagery (§4.1) is the
+alternative for the rural feeders.
+
 ---
 
 ## 5. Geometry when there is a track
@@ -299,6 +338,15 @@ point and the span boundary; without it the branch point lands on a transformer.
 
 A walked row is `BASIS = SURVEYED`; a row read off the hand drawing stays `FROM-SLD`. The split is
 the progress bar, and `--list` already reports it.
+
+### 7.5 Coordinates are placement, not evidence
+
+`LAT`/`LONG` decide where a symbol is drawn and nothing else — never a parent, never a `SPUR_ID`. A
+blank coordinate is valid; the node is listed in `UNPOSITIONED` and the line skips it (§4.3).
+
+Proposed column `POS_SOURCE` — `MASTER`, `GPS` or `NONE` — so a reader can tell a position taken
+from the register from an unverified fix, without reopening the question of whether the tree is
+right. The two are independent facts and the workbook should not make them look like one.
 
 ---
 
@@ -417,13 +465,16 @@ regenerable; and the “what changed” table is a diff between two `--as-of` ru
 4. **`TIES` and `STATUS`/`AS_OF`** — adopt both, or is a tree-only workbook enough for now?
 5. **Voltage limit** the section applies for a lateral and for the feeder (3 % / 6 % or otherwise).
 6. **Where the load data comes from** for loss work — DTC readings, feeder energy, or both.
+7. **Unpositioned poles** — record a fix at every tap (recommended), omit pole rows and parent DTC
+to DTC, or implement interpolation in the tool?
 
 ---
 
 ## 12. What this document does not claim
 
 No code reads GPX or KML; there is no `TIES`, `STATUS` or `AS_OF` column; nothing calculates voltage
-drop or loss; there is no field app. Today the tool draws a tree from a workbook and validates it.
+drop or loss; there is no field app; and no pole without a coordinate is interpolated (§4.3). Today
+the tool draws a tree from a workbook and validates it.
 Everything above is a plan for the next layer, written so that each step is useful even if the next
 one never happens.
 

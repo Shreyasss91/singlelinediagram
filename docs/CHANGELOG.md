@@ -6,7 +6,44 @@ generator up to its current state.
 
 ---
 
-## 2026-10-29 · Newest — `FIELD_CAPTURE.md`: which method, and the walk in detail
+## 2026-10-29 · Newest — `FIELD_CAPTURE.md`: where a node sits when the walk decides
+
+The method chapter said the tree is captured without positioning, which raised the obvious question:
+then where do the boxes go? The answer differs by layout, and one part of it was wrong in a shipped
+document.
+
+### Added
+- **`FIELD_CAPTURE.md` §4.3 Where the nodes go on the sheet** — the schematic uses no coordinates at
+  all (rows are the tree's depth-first order); the geographical sheet places symbols at the master's
+  positions, which are not re-surveyed and are not overridden by a walked fix; and **a pole needs a
+  coordinate of its own**, because an unpositioned node is listed in `UNPOSITIONED` and the link runs
+  to the nearest positioned ancestor, past it. The reader does not interpolate.
+- **Three options for a full-mode walk**, with cost: record the fix at each tap (free, invisible at
+  drawing scale), omit pole rows and parent DTC to DTC (coarser branch points), or implement
+  interpolation (not done). The recommendation is to take the fix at every tap and never let it
+  decide anything — GPS is placement, not evidence.
+- **§7.5 Coordinates are placement, not evidence** — `LAT`/`LONG` never choose a parent or a
+  `SPUR_ID`; a blank coordinate is valid; proposed `POS_SOURCE` column separates the provenance of a
+  position from confidence in the tree.
+- **Decision 7** — record a fix per pole, omit pole rows, or interpolate.
+
+### Fixed
+- **`TOPOLOGY_DATA_REQUIREMENTS.md` §4.1** promised that a pole with no coordinate would be placed
+  on the straight line between its parent and children. The reader does no such thing: it lists the
+  pole in `UNPOSITIONED` and draws past it (§13, rule 8). The section now says so, notes that the
+  box grows with every entry, and names the two ways to avoid it.
+
+### Changed
+- **`FIELD_CAPTURE.md` §4 table** — “no positioning at all” becomes “no position is needed to decide
+  a parent”, which is what the method actually claims.
+
+### Not changed
+- **No code.** Interpolation is still not implemented, no GPX reader exists, and no coordinate is
+  used for parent selection anywhere in the tool.
+
+---
+
+## 2026-10-29 — `FIELD_CAPTURE.md`: which method, and the walk in detail
 
 The first draft listed the methods and stopped there. It did not say which one wins on this network,
 nor what “order + pole-number photo” looks like on the ground — the two things a field team needs

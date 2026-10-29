@@ -162,9 +162,14 @@ One row per MUSS, RMU, GOS, pole, DTC and HT service. Columns A–O:
 
 ### 4.1 Blank coordinates on a pole
 
-A pole with no latitude/longitude is still useful. The reader will place it on the straight line
-between its parent and its children. Topology stays exact; only the bend of that one span is
-approximate. This is the cheapest way to get correct spur grouping before a field survey.
+A pole with no latitude/longitude still carries topology, but it is **not placed on the geographical
+sheet**: the reader lists it in `UNPOSITIONED` and draws the link from the nearest positioned
+ancestor, naming the skipped node (§13, rule 8). It does **not** interpolate the pole onto the span.
+
+So a pole row is exact for the tree and invisible on a `--geo` sheet until it has a coordinate of
+its own. Give it one from the phone at the tap — a 5–15 m fix is invisible at drawing scale, and the
+coordinate decides nothing about the parent — or omit pole rows and parent DTC to DTC (§3.2).
+Interpolating an unpositioned pole is not implemented; ask if you want it.
 
 ### 4.2 Minimum viable submission
 
