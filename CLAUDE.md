@@ -35,7 +35,7 @@ test suite.
 ## Layout
 
 ```
-sld_generator.py                 the whole tool (~1600 lines, no packages)
+sld_generator.py                 the whole tool (~2980 lines, no packages)
 field_data/DTC DETAILS U4.xlsx   the master workbook - the register of record
 field_data/TOPOLOGY.xlsx         your filled-in connection workbook - read by --geo, never written by the tool
 docs/README.md                   the user manual
@@ -63,22 +63,27 @@ outputs/<date>/                  generated .drawio + PNG (ignored)
    `topology_for_feeder()` (the subtree this feeder draws), `validate_topology()` (structural checks),
    `topology_items()` (merge with the register) and `resolve_links()` (link per node, with the reason
    when it is a guess).
-3. **Model** — `Page` and `Workbook` emit the `mxCell` XML. `Workbook.to_xml()` is the only writer.
+3. **Model** — `Page` and `Workbook` emit the `mxCell` XML. `Page.edge(..., src_side, tgt_side)`
+   writes draw.io's `exitX/exitY/entryX/entryY`; that is what pins a connector to an edge midpoint.
+   `Workbook.to_xml()` is the only writer.
 4. **Furniture** — `sheet_header`, `summary_table`, `unpositioned_block`, `scale_bar`, label
-   placement helpers. Shared by both layouts.
+   placement helpers. `place_label()` can take a preferred first side (`first`) and return the
+   rectangle it took (`out`), because the connector router treats labels as obstacles.
 5. **Layouts** — `build_schematic()` (a grid, but ordered by `tree_order()` when the workbook is
    there) and `build_geo()` (projection, then either the workbook's parent links or an MST or
    `--route`). Both return `(Workbook, info)`; `info` feeds the console summary. `build_geo()` order
    matters: page transform, then one tap point per node, then the symbols (which may move off a
-   crowded spot — `draw_rmu()` for a unit's divided panel), then the MUSS box, then the
-   lines — so a line meets the position the survey recorded, not the box that had to be moved.
+   crowded spot — `draw_rmu()` for a unit's divided panel), then the MUSS box, then a
+   `ConnectorRouter` over the placed symbols and labels, then the lines, then the position leaders.
    `build_schematic()` draws the node's parent under its box (`from SCD-01`) and the spur tag at the
    branch point, because a grid has no line to say either; the row bus is a convention, not a claim.
 6. **Template builders** — `build_template()` writes the drawio template; `build_topology_template()`
    writes the workbook, with `_infer_topology()` (Prim's MST rooted at the MUSS, then the longest path
    from the MUSS becomes `SPUR_ID = T` and each branch off it becomes `S1`, `S2`, …) and `_node_id()`.
-7. **`preview()`** — re-draws the same XML with PyMuPDF into a PNG. It is an approximation of the
-   sheet, not a render of draw.io: use it to check placement and density, not fonts or styling.
+7. **`preview()`** — re-draws the same XML with PyMuPDF into a PNG. It honours the edge ports and
+   clips a floating connector at the symbol border, hides the invisible anchors and draws small
+   ellipses as filled dots, so the PNG stays honest. It is still an approximation of the sheet, not a
+   render of draw.io: use it to check placement and density, not fonts or styling.
 8. **`main()`** — argparse dispatch. `--topology-template` and `--template` return early; everything
    below them is the normal generate path.
 
@@ -132,11 +137,12 @@ and lists them in `UNPOSITIONED` — that check is why a typo cannot wreck a she
 
 - Keep the single-file design and the existing section-comment banners. Match the surrounding style:
   4-space indent, `f"..."` messages, short helper functions, no classes beyond `Page`/`Workbook`.
-- **Lines are routed in the tool, not by draw.io.** A run turns at right angles (`ortho_route`),
-  and the corner is one point: the two segments meet at exactly 90°, with no rounding and no
-  chamfer. That keeps the `--preview` PNG honest — the two renderers can only agree while the shape
-  is the tool's own invention. Equipment that sits in the run (pole, GOS, RMU) is drawn on the line;
-  a DTC/HT hangs 26 px beside it on a service tap, which is what keeps a routed line out of a symbol.
+- **Lines are routed in the tool, not by draw.io.** A connector leaves and enters at the midpoint of
+  an edge (`ConnectorRouter`, `EDGE_SIDES`): the short right-angled shapes are scored against every
+  symbol and label on the sheet, and an 8 px grid search (`_search`) takes over when a box blocks
+  them all. The path is the tool's own square polyline, given to draw.io as waypoints plus
+  `exitX/entryX`, which keeps the `--preview` PNG and the editor in agreement. Equipment that sits in
+  the run (pole, GOS, RMU) is drawn on the line; a DTC/HT hangs 26 px beside it on a service tap.
 - Console output is aligned `key : value` lines — keep that shape, users read it.
 - The script is deliberately forgiving with data: skip and report, never crash on one bad row. It
   stops only for a configuration problem — missing master, unknown feeder, unusable route, or an
@@ -164,6 +170,10 @@ Then:
   symbol, and each line should join a node to its `PARENT_ID`;
 - confirm the `.drawio` parses:
   `python -c "import xml.etree.ElementTree as ET; ET.parse(r'...\file.drawio'); print('ok')"`
+- for connector changes, measure the drawn polylines against their own ports and rectangles: every
+  port on a symbol must be an edge midpoint, every segment axis-aligned, and no segment inside a
+  symbol other than the two it joins. On 29 October that check found the one feed that still crossed
+  the KOTE ROAD panel and drove the grid-search change; run it before trusting a screenshot.
 - for workbook changes, re-read it with openpyxl and assert the shape you intended: headers,
   row/column counts, validation ranges, conditional formatting, filter range;
 - for topology changes, also check: no duplicate `NODE_ID`, no dangling `PARENT_ID`, no cycles,
@@ -194,6 +204,15 @@ Verification scripts are throwaway — put them in the temp folder, not the repo
 - **The panel's cables land on portions, not on the box.** Each link creates the 3 × 3 anchor it needs
   on the portion edge facing the node, so an anchor that exists is an anchor in use. Adding a spare
   anchor in `draw_rmu()` puts a dot on the panel for nothing.
+- **A connector can still cross a label, and a leader a box.** Labels are a smaller penalty than
+  symbols, and in the MRS F1 cluster no clean corridor exists for some links — the console's
+  `connectors` line counts the symbol detours and crossings, while the label count is in README §11.
+  Do not move a label in code on the strength of one sheet: a spot that is free there is often the
+  path of another run. Run all four feeders before claiming an improvement.
+- **A port is an endpoint, not a decoration.** `src_side`/`tgt_side` add `exitX/exitY` and
+  `entryX/entryY` to the edge style; the first waypoint must already be offset along the same normal
+  or the line leaves the box at a kink. `ConnectorRouter` guarantees that with its stub; a hand-made
+  `d.edge(..., src_side=...)` must do the same.
 - **Line endings.** Git reports `LF will be replaced by CRLF` on this Windows checkout. Expected;
   leave it alone.
 - **This repository is public.** The master already contains real DTC names, meter numbers, GPS and
@@ -239,7 +258,10 @@ templates, docs, and **both layouts drawn from the connection
 workbook** — `--geo` with parent links, poles, the GOS and its state, the RMU's portions,
 orthogonal runs with square corners, `BENDS` shaping a span and spur tags from `SPURS!LABEL`; the
 schematic in depth-first order with `from <parent>` under each box, equipment symbols and a spur tag
-at the branch point. Validation separates errors from warnings. Known limitation list is
+at the branch point. Connectors now meet a symbol at an edge midpoint and route around the other
+symbols; labels are placed on the far side of a moved symbol and are obstacles for the router. On the
+densest sheet (MRS F1) four position leaders still touch a neighbouring box and twenty lines cross
+a label — counted, not hidden. Validation separates errors from warnings. Known limitation list is
 `docs/README.md` §11 — keep it honest as work lands. Next candidates, in the order the data will pay
 for itself: a `PARENT_ID` on each RMU row (three still guessed), a recorded `NORMALLY` on the GOS
 rows, poles for the remaining feeders, and a per-spur count in the summary table.

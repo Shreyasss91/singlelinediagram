@@ -6,7 +6,68 @@ generator up to its current state.
 
 ---
 
-## 2026-10-28 · Newest — an RMU is a panel divided into its ways
+## 2026-10-29 · Newest — a connector meets a symbol at an edge midpoint
+
+The runs used to start at the surveyed point behind a symbol and stop wherever the line happened to
+cross its border. They now leave and enter at the **midpoint of one of the symbol's four edges**, on
+the pair of edges and by the path that keep the line out of the other symbols — and, where the sheet
+allows it, out of the labels.
+
+### Added
+- **`ConnectorRouter`** — picks a port on each end and a path between them. It scores every port pair
+  on the short right-angled shapes (straight, one-bend, two-bend Z), with the symbol and label
+  rectangles already on the sheet as obstacles, and takes the shortest clean one. When every simple
+  shape crosses a symbol it runs an 8 px grid search with the symbols all but blocked, so a detour
+  around a box wins over cutting through it; if even the search cannot get round, the least-bad simple
+  shape is kept and the run counts it (`connectors : … 1 still crossing one`).
+- **At most 14 px of square lead off a port**, shortened when a neighbour stands closer than that;
+  the search does the same, so a stub cannot reach into the box next door.
+- **A grid path is folded back into long runs** (`_straighten`) before it is written: collinear
+  points collapse and a clear axis-aligned shortcut removes a staircase.
+- **A visible surveyed-point dot** (`ST_TAP`). A symbol that moves off its surveyed position is tied
+  back to it by a thin leader; the dot gives that leader an end instead of finishing in mid-air.
+  The leader is square and picks the nearest edge midpoint that does not cross another symbol.
+- **`place_label(..., first=, out=)`** — `first` orders the four label sides so a moved symbol's
+  name lands on the far side from its tap; `out` returns the rectangle, because the connector router
+  treats labels as obstacles.
+- **The preview honours `exitX/exitY/entryX/entryY`**, and a connector with no explicit port is
+  clipped where the line leaves the symbol, as draw.io does. Hidden anchors are no longer drawn as
+  blue squares, and small ellipses (poles, tap dots) are drawn as filled dots.
+
+### Changed
+- **A link joins symbol to symbol.** It used to start at the parent's hidden tap dot and end on the
+  child's border, so a run left from behind its own parent box and crossed it. The tap dot still
+  marks the surveyed position, but it is no longer a terminal for the network.
+- **The MUSS feed, RMU cables and guessed links go through the same router.** A cable off an RMU
+  portion still starts on the portion edge facing its node; the feed into `ODin` still lands on
+  `ODin`, never across the other portions.
+- **Labels try the far side of a tapped symbol first**, so a label no longer sits between the symbol
+  and its surveyed point. The four sides are still scored by overlap as before.
+- **`Page.edge()` grew `src_side` / `tgt_side`**, which append the draw.io port fractions; every
+  geographical connector that ends on a symbol now carries one.
+
+### Regenerated
+- Regenerated after this change: `outputs\2026-10-27\` (all eight sheets and their PNGs).
+
+### Verification
+- All eight sheets regenerated and parsed: **0 dangling connectors, 0 shapes off the A3 page**.
+- Every drawn polyline measured against its own ports and rectangles: **0 diagonal segments** on all
+  eight sheets, and **0 symbol crossings** except on `MRS F1`, where **4 position leaders** still
+  pass a neighbouring box in its dense cluster. Every **geographical** connector that ends on a
+  symbol carries an edge-midpoint port; the schematic runs are straight bus-to-box stubs that cross
+  the border at the midpoint without needing one.
+- Labels: 0 crossings on all four schematic sheets, 3 on F13, 2 on F22, 1 on F3 and 20 on MRS F1 —
+  mostly the surveyed-point leaders in the dense part of F1. The router avoids labels where a clean
+  route exists; the rest is the density of a 65-node sheet, not a missed check.
+- `--no-topology`, `--route template/route_template.csv`, `--extent all`, `--list`, the schematic and
+  the template all still run. On the `--route` path the surveyed polyline itself is diagonal by
+  design; the taps to its symbols are square.
+- Not verified: opening the files in draw.io itself. The new part is `exitX/entryX` on the edge
+  style and a visible 3 × 3 dot — both standard draw.io features, but no installation here to see.
+
+---
+
+## 2026-10-28 — an RMU is a panel divided into its ways
 
 The unit used to be a box with five terminals hung out on short leaders. It is now **one panel split
 inside** into one portion per way — `ODin` at the left end, `ODout` at the right, the VLs between — so

@@ -276,17 +276,20 @@ connection workbook (§8) records it. What the generator does:
    than a lateral (`S1`, `S2`, …), a `BENDS` row bends that one span around the corner it records,
    and a link the tool had to guess is drawn **dashed**. With no workbook — or with `--no-topology` —
    a **minimum spanning tree** over the coordinates is used instead: a likeness, not a record.
-4. **Routes each run orthogonally.** A link does not run diagonally across the sheet: it leaves on
-   the axis with the larger gap, turns at the midpoint and arrives square, and the turn is one sharp
-   right angle. A span with `BENDS` rows keeps its recorded shape, corner for corner; a hop of less
-   than 70 px stays a straight line, because a small jog reads like a mistake. Equipment that sits
-   *in* the run — a pole, the GOS, an RMU — is drawn on the line; a DTC or HT service hangs *beside*
-   it on a short tap, so a run never crosses a transformer box.
+4. **Routes each run orthogonally, between edge midpoints.** A connector leaves and enters at the
+   midpoint of one of the symbol's four edges, never at an arbitrary point on its border. The tool
+   tries the straight, one-bend and two-bend Z shapes for every pair of ports, keeps the shortest one
+   that does not pass through another symbol, and when every simple shape is blocked it searches an
+   8 px grid for a way round. Every turn is a right angle, with a small square lead off each port. A
+   span with `BENDS` rows keeps its recorded shape. Equipment that sits *in* the run — a pole, the
+   GOS — is drawn on the line; a DTC or HT service hangs *beside* it on a short tap, and an RMU is a
+   panel the runs go round and land on by their portion, so a run does not sit on a transformer box
+   or across a compartment.
 5. **Draws each node as the symbol for its `TYPE`.** A DTC is a square with its kVA inside, an HT
    service a white square, a pole a dot carrying its code, the GOS a bar sitting on the line, the
    MUSS the source box, and the RMU its panel **divided into one portion per way**. A symbol that has
-   to move off a crowded spot is joined back to its own point by a thin service tap, so the line
-   always marks the surveyed position.
+   to move off a crowded spot is joined back to its own point by a thin square leader ending in a
+   visible dot, so the surveyed position is still marked even though the cable meets the symbol.
 
    **An RMU shows its ways inside the symbol.** `ODin` is the left end of the panel, `ODout` the
    right, and the VLs sit between them in register order — a five-way unit is five portions, a
@@ -305,8 +308,10 @@ connection workbook (§8) records it. What the generator does:
      downstream; while it stands open that load is fed from elsewhere
    ```
 6. **Places the labels.** Each label tries twelve positions (below, above, right, left, at three
-   distances) and keeps the freest one. Where two nodes sit on the same spot, the symbols are nudged
-   apart so both ratings stay visible.
+   distances), starting on the side away from a moved symbol's tap, and keeps the freest one. The
+   rectangle it took is then an obstacle for the connector router, so a line goes round a label when
+   the gaps allow it. Where two nodes sit on the same spot, the symbols are nudged apart so both
+   ratings stay visible.
 7. **Adds the drawing aids** — a scale bar in metres and a north arrow, so the sheet cannot be
    mistaken for a to-scale survey.
 8. **Lists what it could not place** in a dashed `UNPOSITIONED` box along the bottom, with code,
@@ -316,6 +321,28 @@ connection workbook (§8) records it. What the generator does:
 Because the runs are routed at right angles and a transformer hangs off the line rather than on it,
 the sheet shows *what is connected to what*, not the road the cable follows. The true shape comes
 from `BENDS` (§8): a couple of points per lateral is enough to make a run follow its road.
+
+### Where a line meets a symbol
+
+A port is the midpoint of one of the symbol's edges, and the side is chosen for the path, not fixed
+by type: on a DTC it is usually the edge facing the parent, on an RMU the portion edge facing the
+node, on the MUSS the side facing the network. draw.io is told the fraction (`exitX/exitY`,
+`entryX/entryY`), so dragging a symbol in the editor keeps the line on that midpoint instead of
+letting it slide to a corner.
+
+The line is scored against every symbol already placed: a crossing costs more than any detour, a
+label is a smaller penalty. A 14 px square lead takes the line off the port before its first turn; if
+a neighbouring box is closer than that the lead is shortened, so the stub cannot reach into it. On a
+dense sheet a run can still be forced through a label or behind a box. The console reports it:
+
+```
+connectors : 64 routed, 1 round a box, 0 still crossing one
+```
+
+`routed` counts the connectors the router chose a path for, `round a box` those it had to detour for
+a symbol, and `still crossing one` the ones no clean path existed for. A line that has to cross a
+box is drawn anyway, because the connection is the fact the sheet is signed against — but it is
+counted, never hidden.
 
 ### Where the shape came from
 
@@ -667,6 +694,16 @@ come from the same rows as the spur lines.
 * **Dense areas need a hand.** On MRS F1 the DTCs are 48 m apart, which is ~46 px on A3, while a
   label is 100 px wide. The label placement minimises overlap but cannot eliminate it; the tightest
   corner will still need a nudge in draw.io. F13 and F22 have plenty of room.
+* **A connector can still cross a label.** Labels are obstacles in the router, and the port pair is
+  chosen to avoid them where a clean route exists, but on MRS F1 twenty crossings remain — ten on
+  network links, ten on the thin position leaders — because the labels are packed into the same
+  46 px gaps as the symbols. The other three geographical sheets have six between them. Moving a
+  label in draw.io is the fix for the few that matter; the tool will not silently reroute a feed to
+  dodge text.
+* **A position leader can pass a neighbour.** The leader that ties a moved symbol back to its
+  surveyed dot picks the nearest clean edge, but in the tightest part of MRS F1 four of them still
+  touch a neighbouring box. They are 0.8 pt lines, not feeds, and are reported by the same
+  `connectors` count as a crossing.
 * **A switch state is drawn, not solved.** A GOS with `NORMALLY = NO` shows an open blade and its
   downstream DTCs and kVA, and a `RMU WAYS` way marked `NO` carries `NO` on its portion — but
   neither de-energises anything or re-routes a feed. The drawing is the record, not a load flow.

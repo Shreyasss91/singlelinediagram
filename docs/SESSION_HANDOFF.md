@@ -39,6 +39,13 @@
 > drawn from the same tree** (depth-first order, `from <parent>` under each box, equipment symbols,
 > spur tags at the branch point). §5 and §7 below describe the current behaviour; §9 is the updated
 > list of what is left.
+>
+> **Update 9 (29 October 2026):** connectors now meet a symbol at **the midpoint of one of its four
+> edges**, join symbol to symbol, and are routed around the other symbols by a new
+> `ConnectorRouter` (short right-angled shapes scored against every symbol and label, with an 8 px
+> grid search when a box blocks them all). The surveyed-point dot is now visible, its leader is
+> square and picks a clean edge, and labels sit on the far side of a tapped symbol and are routing
+> obstacles. §5.6/§5.8 and §7 are current; the data issues in §8/§9 are unchanged.
 
 ---
 
@@ -51,7 +58,8 @@ generator: **two spreadsheets in, an editable `.drawio` single line diagram out*
 
 The tool works, and **both** sheets are now drawings of the connection record rather than likenesses
 of it: the geographical sheet draws it as lines, the schematic as order. All eight sheets were
-regenerated on 28 October 2026 and pass structural validation. MUSS and RMU positions come from the
+regenerated on 29 October 2026 and pass structural validation; every geographical connector now
+leaves and enters at an edge midpoint of its symbol. MUSS and RMU positions come from the
 master's `NON DTC NODES` sheet; parents, poles, the GOS, the RMU's terminals, the spur tags and the
 bend points come from `field_data/TOPOLOGY.xlsx`. The open items are data clean-up in that workbook
 (three RMUs without a tap pole, one stale `RMU WAYS` row, a blank `NORMALLY` on `GOS-01`), the
@@ -63,7 +71,7 @@ remaining missing GPS, and pole-level detail for the feeders that still have non
 
 | File | Size | Role |
 |---|---|---|
-| `sld_generator.py` | ~115 KB / 2400 lines | The tool. Single file, no local packages. |
+| `sld_generator.py` | ~138 KB / 2980 lines | The tool. Single file, no local packages. |
 | `field_data/DTC DETAILS U4.xlsx` | 51 KB | Master workbook — the register of record, read by default. |
 | `field_data/TOPOLOGY.xlsx` | 37 KB | The connection workbook the user fills in. **Read by both layouts; never written by the tool.** |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | 17 KB | Blank A3 sheet + symbol library, two tabs. |
@@ -113,21 +121,22 @@ Dependencies: `openpyxl` (required), `pymupdf` (only for `--preview`). Both inst
 One file, top-to-bottom:
 
 ```
-constants & styles      L52–160   page size, geometry, draw.io style strings
-data helpers            L164–303  _txt, _num, _kva, crop_name, read_nodes, find_station,
+constants & styles      L52–165   page size, geometry, draw.io styles, EDGE_SIDES
+data helpers            L167–310  _txt, _num, _kva, crop_name, read_nodes, find_station,
                                   assign_nodes_to_feeders, read_master, _norm, pick
-connection workbook     L316–643  read_topology, topology_for_feeder, validate_topology,
+connection workbook     L311–702  read_topology, topology_for_feeder, validate_topology,
                                   topology_items, resolve_links, draw_rmu
-diagram model           L680–744  Page (vertex/edge emitters), Workbook (multi-page → XML)
-sheet furniture         L747–878  sheet_header, summary_table, unpositioned_block, scale_bar,
+diagram model           L704–773  Page (vertex/edge emitters, edge ports), Workbook (→ XML)
+sheet furniture         L774–921  sheet_header, summary_table, unpositioned_block, scale_bar,
                                   _overlaps, _clamp_label, place_label, free_slot
-schematic layout        L881–1057 choose_grid, tree_order, rmu_way_text, build_schematic
-geo helpers             L1060–1214 clean_points, _metres, prim, tree_ends, read_route,
+schematic layout        L922–1101 choose_grid, tree_order, rmu_way_text, build_schematic
+geo helpers             L1102–1230 clean_points, _metres, prim, tree_ends, read_route,
                                   ortho_route, _project
-geo layout              L1214–1568 build_geo
-templates               L1571–2136 build_template, build_topology_template, _infer_topology
-preview                 L2139–2203 preview (PyMuPDF re-draw of the same coordinates)
-CLI                     L2204+    main
+connector router        L1232–1650 _port, _seg_crosses, _shapes, _search, ConnectorRouter
+geo layout              L1651–2119 build_geo
+templates               L2120–2715 build_template, build_topology_template, _infer_topology
+preview                 L2716–2797 preview (ports, border clipping, dots)
+CLI                     L2798+    main
 ```
 
 (Line numbers are as of the handoff; they shift with edits.)
@@ -209,24 +218,33 @@ listed. **The row bus is a convention, not wiring:** only the `from` line states
 4. **Page transform**: the fit excludes `TYPE = MUSS` nodes and the MUSS coordinate, so a substation
    1.7–2.6 km away cannot shrink the drawing; scale = `min(1460/spanx, 735/spany, 3.2)`, north up,
    centred.
-5. **Tap points.** One hidden 3 × 3 vertex per node at its own surveyed page position; lines run
-   between tap points (`BENDS` rows become edge waypoints), so a line always marks where the
-   equipment is.
-6. **Routing.** `ortho_route()` turns every run at right angles — the axis with the larger gap first,
-   turning at the midpoint — and the corner is a single point, so the two segments meet at exactly
-   90°. A `BENDS` span is drawn through its recorded points unchanged. A hop under 70 px stays
-   straight, and so does a run with under 6 px of off-axis drift. A recorded bend on a span from the
-   off-map MUSS is dropped rather than dragging the line off the paper.
+5. **Tap points.** One 3 × 3 dot per node at its own surveyed page position. It is drawn (`ST_TAP`),
+   not hidden, and a symbol that had to move off that spot is tied back to it by a thin leader; the
+   dot gives the leader an end. `BENDS` rows become edge waypoints.
+6. **Routing.** Every connector is asked of `ConnectorRouter`, which picks a port on each end and a
+   square path between them. A **port is the midpoint of a symbol edge** (`EDGE_SIDES`), written into
+   the edge style as `exitX/exitY` and `entryX/entryY`, so draw.io keeps the attachment when the
+   symbol is dragged. The router scores every port pair on the straight, one-bend and two-bend Z
+   shapes; a segment through a symbol costs more than any detour, a label is a smaller penalty. A
+   14 px square lead off the port (shortened when a neighbour is closer) takes the line clear before
+   its first turn. When every simple shape is blocked it runs an 8 px grid A* with symbol cells made
+   ruinously expensive; the result is folded into long runs, and if no way round exists the least-bad
+   simple shape is kept and counted (`connectors : 64 routed, 1 round a box, 0 still crossing one`).
+   A `BENDS` span is still drawn through its recorded points unchanged; the KOTE ROAD panel case that
+   forced the search is in §7.
 7. **Symbols**, per `TYPE`: `DTC` = 44 × 22 square with the kVA, `HT` = white square, `POLE`/`JUNCTION`
    = 6 × 6 dot with its code in 6 px text, `GOS` = 30 × 4 bar sitting on the line (a lifted hollow
    blade when `NORMALLY = NO`), `RMU` = `draw_rmu()`'s panel divided into one `34 × 26` portion per
    way — `ODin` first, `ODout` last, the VLs between, filled where a cable lands and white `empty`
    where not — `MUSS` = source box, `NODE` = DTC-shaped fallback. A boxed symbol that has to move off
    a crowded spot is placed by `free_slot()` (perpendicular-first for a DTC) and joined back to its
-   tap by a service tap; a cable off an RMU starts at the portion, on the edge facing its node, and
-   the anchor for that edge is created by the link that uses it.
-8. `place_label` tries 12 positions per label and scores overlap area against everything already
-   placed (symbols and labels), clamping to the drawing area.
+   tap by a square leader that enters the nearest edge midpoint not crossed by another symbol; a
+   cable off an RMU starts at the portion, on the edge facing its node, and the anchor for that edge
+   is created by the link that uses it.
+8. `place_label` tries 12 positions per label, starting on the far side of a moved symbol's tap, and
+   scores overlap area against everything already placed (symbols and labels), clamping to the
+   drawing area. The rectangle it takes joins `label_boxes`, so the connector router treats text as
+   an obstacle.
 9. The MUSS box is drawn after the equipment. If including the substation would cost more than 30 %
    of the scale, the network keeps its own scale and the box is drawn at the page edge in its true
    direction, labelled with the real distance — and, in a workbook run, the root's children hang off
@@ -336,6 +354,38 @@ Three `RMU WAYS` units and 23 `SPURS` rows are recorded; `BENDS` is still empty.
   carries its `from` line, the RMU its ways, the five MRS F1 HT services their kVA, and the spur tags
   sit under the nodes the spurs leave from. The no-parent report is one line per reason.
 
+### Verification performed (29 October 2026)
+
+* **Structure**: all eight `outputs\2026-10-27\*.drawio` files regenerated from the workbook as it
+  stands, then parsed with ElementTree: **0 dangling connectors, 0 shapes off the A3 page** in each.
+  Vertices/edges: MRS F1 239/120 geo and 244/145 schematic, F13 97/37 and 86/45, F22 112/55 and
+  122/67, F3 37/8 and 34/12.
+* **Ports and squareness**: every edge's chain was rebuilt from its `exitX/exitY`/`entryX/entryY`
+  fractions (or clipped at the symbol border when it has none) and measured. **0 diagonal segments on
+  all eight sheets**; every connector ending on a symbol carries an edge-midpoint port (177 of 240
+  ends on MRS F1 are ports; the rest are RMU-portion anchors, position leaders and the surveyed-route
+  taps). The four schematic sheets have no explicit ports and none need them — their runs are
+  straight bus-to-box stubs that cross the border at the midpoint anyway.
+* **Symbols**: **0 connector-through-a-symbol crossings** on F13, F22, F3 and the schematic sheets.
+  MRS F1 has **4**, all of them 0.8 pt position leaders in the tightest cluster, not network links.
+  One feed (the `25` DTC below KOTE ROAD RMU) is routed round the 170 × 26 panel: the console says
+  `64 routed, 1 round a box, 0 still crossing one`, and the panel crossing that existed in the first
+  cut is what drove the grid search and the shorter-stub rule.
+* **Labels**: 0 crossings on all four schematic sheets, 3 on F13, 2 on F22, 1 on F3 and 20 on MRS F1
+  (10 network links, 10 position leaders). Labels are obstacles in the router; the remaining crossings
+  are the label density of a 65-node sheet, not a missing check. The four `README` §11 bullets record
+  this as a limit.
+* **Visual**: PNGs of F13, F22, F3 and MRS F1 inspected, plus the F13 schematic and a
+  `--no-topology` run. Defects found this way and fixed were the panel feed that ran across the
+  compartments and a VL cable that cut through the panel; the leader diagonals; and hidden RMU
+  anchors showing as blue squares in the preview.
+* **Other paths**: `--no-topology` (49 of 66 ends are ports; 0 diagonal, 1 symbol crossing — a leader),
+  `--route template/route_template.csv` (the surveyed polyline itself is diagonal by design; its taps
+  are square), `--extent all`, `--list`, `--template`, and the four schematics all run and parse.
+* **Not verified**: opening the files in draw.io itself — no installation here. The new construct is
+  the standard `exitX/entryX` pair plus a visible 3 × 3 dot, but these are the first sheets to use
+  them.
+
 ---
 
 ## 8. Open data issues (user's workbook)
@@ -375,6 +425,9 @@ These are reported by the tool but must be fixed at source:
    they are drawn on the schematic only, after the trunk.
 8. **A per-spur count in the summary table**, from the same rows as the spur lines — the last place
    where the sheet still says "feeder" where the reader wants "lateral".
+9. **Nudge the last few labels on MRS F1** if the sheet is going to print: 20 connectors still touch
+   text (10 links, 10 position leaders). The router avoids labels where a corridor exists; the rest
+   is the density of that cluster, and moving the label in draw.io is cheaper than another search.
 
 ---
 
@@ -413,10 +466,23 @@ These are reported by the tool but must be fixed at source:
 * **Regenerating overwrites the `.drawio`.** Hand edits must be saved under a new name first.
 * **Excel lock file** `~$DTC DETAILS U4.xlsx` appears whenever the workbook is open; harmless, but
   if the user is mid-edit the script reads the last *saved* state.
-* **`--preview` is a re-draw, not a renderer.** It shares the generator's coordinates, so it is
-  faithful for layout, but fonts and HTML wrapping differ slightly from draw.io.
+* **`--preview` is a re-draw, not a renderer.** It shares the generator's coordinates and now honours
+  the edge ports (a floating connector is clipped at the border), hides the anchors and fills small
+  dots; fonts and HTML wrapping still differ from draw.io. It is a placement check, not a proof of
+  what draw.io will show.
 * **Label density is a real limit.** MRS F1 at ~46 px between symbols with 100 px labels cannot be
-  collision-free; do not "fix" this by shrinking the page or the symbols without checking the PNG.
+  collision-free; the router leaves 20 crossings there (10 links, 10 leaders) and avoids labels where
+  a clean corridor exists. Do not "fix" it by shrinking the page or symbols without checking all
+  four PNGs, and do not move a label in code for one sheet — another feeder's run may use that spot.
+* **A port is a style fraction, not a point.** `Page.edge(..., src_side=...)` writes
+  `exitX/exitY`; the first waypoint must be offset along the same normal or the line kinks at the
+  border. `ConnectorRouter` guarantees that with its stub — a hand-written edge must do the same.
+* **A tap dot is visible on purpose.** `ST_TAP` marks the surveyed position; `ST_HIDDEN` is an anchor
+  (RMU portion, route point, leader start). Swapping them prints a dot for every surveyed bend, or
+  leaves a leader ending in mid-air.
+* **Do not reroute a feed to dodge text.** Labels are a smaller penalty than symbols on purpose; a
+  line through a label is a readability problem, a line through a transformer terminal is a wrong
+  drawing. The console counts both separately.
 * **Coordinate sanity** — valid values for this area are lat ≈ 13.9, lon ≈ 75.5. A lat of 3.9 means
   a dropped leading digit.
 * **Never edit `field_data/TOPOLOGY.xlsx` to "fix" it.** It is field work; the tool reads it and
