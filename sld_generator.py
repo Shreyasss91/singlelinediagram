@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import heapq
 import math
 import os
 import re
@@ -137,11 +138,20 @@ ST_STUB = "endArrow=none;html=1;rounded=0;strokeColor=#6c8ebf;strokeWidth=0.8;ed
 ST_DASH = ("endArrow=classic;html=1;rounded=0;dashed=1;strokeColor=#6c8ebf;"
            "strokeWidth=1;edgeStyle=none;")
 ST_JUNC = "ellipse;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=#6c8ebf;"
+# the surveyed position a moved symbol stands off from: a small dot, so the
+# leader from the symbol does not end in mid-air
+ST_TAP = "ellipse;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=#6c8ebf;"
 ST_HIDDEN = "ellipse;whiteSpace=wrap;html=1;fillColor=none;strokeColor=none;"
 ST_SWITCH = "rounded=0;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=none;rotation=45;"
 ST_BUS = "rounded=0;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=none;"
 ST_ARROW = ("triangle;whiteSpace=wrap;html=1;fillColor=#6c8ebf;strokeColor=none;"
             "direction=north;")
+
+# A connector meets a symbol at the midpoint of one of its edges. The fraction is
+# written into the edge style so draw.io attaches there too, instead of picking
+# whatever point on the border the line happens to cross.
+EDGE_SIDES = {"left": (0.0, 0.5), "right": (1.0, 0.5),
+              "top": (0.5, 0.0), "bottom": (0.5, 1.0)}
 ST_BOX = ("rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#999999;"
           "dashed=1;fontSize=8;align=left;verticalAlign=top;spacingLeft=6;spacingTop=4;")
 ST_CELL = ("rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#000000;"
@@ -712,8 +722,14 @@ class Page:
         )
         return cid
 
-    def edge(self, src, tgt, style=ST_LINE, points=None):
+    def edge(self, src, tgt, style=ST_LINE, points=None, src_side=None, tgt_side=None):
         cid = self._id("e")
+        if src_side:
+            fx, fy = EDGE_SIDES[src_side]
+            style += f"exitX={fx};exitY={fy};exitPerimeter=0;"
+        if tgt_side:
+            fx, fy = EDGE_SIDES[tgt_side]
+            style += f"entryX={fx};entryY={fy};entryPerimeter=0;"
         geom = '<mxGeometry relative="1" as="geometry">'
         if points:
             pts = "".join(f'<mxPoint x="{px:.1f}" y="{py:.1f}"/>' for px, py in points)
@@ -832,16 +848,26 @@ def _clamp_label(x, y, w=LBL_W, h=LBL_H):
 
 
 def place_label(d: Page, cx, cy, value, taken, bw=DTC_W, bh=DTC_H,
-                w=LBL_W, h=LBL_H, style=ST_LBL):
-    """Put a label on the freest spot around the symbol at (cx, cy)."""
+                w=LBL_W, h=LBL_H, style=ST_LBL, out=None, first=None):
+    """Put a label on the freest spot around the symbol at (cx, cy).
+
+    `out`, when given, receives the rectangle the label took: the connector
+    router treats labels as obstacles, so a line does not run through the text.
+    `first` is the direction the label should try first; a symbol offset off the
+    line passes the offset, so its name lands on the far side from the tap.
+    """
+    sides = [
+        (cx - w / 2, cy + bh / 2 + 3, (0.0, 1.0)),               # below
+        (cx - w / 2, cy - bh / 2 - h - 3, (0.0, -1.0)),           # above
+        (cx + bw / 2 + 3, cy - h / 2, (1.0, 0.0)),                # right
+        (cx - bw / 2 - w - 3, cy - h / 2, (-1.0, 0.0)),           # left
+    ]
+    if first:
+        fn = math.hypot(first[0], first[1]) or 1.0
+        sides.sort(key=lambda s: -(s[2][0] * first[0] + s[2][1] * first[1]) / fn)
     candidates = []
     for dist in (0, 22, 44):
-        candidates += [
-            (cx - w / 2, cy + bh / 2 + 3 + dist),                 # below
-            (cx - w / 2, cy - bh / 2 - h - 3 - dist),             # above
-            (cx + bw / 2 + 3 + dist, cy - h / 2),                 # right
-            (cx - bw / 2 - w - 3 - dist, cy - h / 2),             # left
-        ]
+        candidates += [(sx + dx * dist, sy + dy * dist) for sx, sy, (dx, dy) in sides]
     best, best_cost = None, None
     for cx0, cy0 in candidates:
         x, y = _clamp_label(cx0, cy0)
@@ -849,10 +875,14 @@ def place_label(d: Page, cx, cy, value, taken, bw=DTC_W, bh=DTC_H,
         cost = sum(_overlap_area(r, t) for t in taken)
         if cost == 0:
             taken.append(r)
+            if out is not None:
+                out.append(r)
             return d.vertex(value, x, y, w, h, style)
         if best_cost is None or cost < best_cost:
             best, best_cost = r, cost
     taken.append(best)
+    if out is not None:
+        out.append(best)
     return d.vertex(value, best[0], best[1], w, h, style)
 
 
@@ -1199,6 +1229,417 @@ def ortho_route(a, b, min_run=70.0):
     return corners
 
 
+# ---------------------------------------------------------------------------
+# connector routing - a port on an edge midpoint, a path around the symbols
+# ---------------------------------------------------------------------------
+_SIDE_VEC = {"left": (-1.0, 0.0), "right": (1.0, 0.0),
+             "top": (0.0, -1.0), "bottom": (0.0, 1.0)}
+
+
+def _port(rect, side):
+    """Midpoint of one edge of a rectangle."""
+    x0, y0, x1, y1 = rect
+    if side == "left":
+        return x0, (y0 + y1) / 2
+    if side == "right":
+        return x1, (y0 + y1) / 2
+    if side == "top":
+        return (x0 + x1) / 2, y0
+    return (x0 + x1) / 2, y1
+
+
+def _seg_crosses(p, q, r, pad=0.0):
+    """Does an axis-aligned segment pass through the inside of a rectangle?"""
+    x0, y0, x1, y1 = r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad
+    ax, ay = p
+    bx, by = q
+    if abs(ay - by) < 0.05:                      # horizontal
+        if not (y0 < ay < y1):
+            return False
+        lo, hi = (ax, bx) if ax <= bx else (bx, ax)
+        return lo < x1 and hi > x0
+    if abs(ax - bx) < 0.05:                      # vertical
+        if not (x0 < ax < x1):
+            return False
+        lo, hi = (ay, by) if ay <= by else (by, ay)
+        return lo < y1 and hi > y0
+    return False
+
+
+def _dedupe(pts):
+    out = []
+    for p in pts:
+        if not out or math.hypot(p[0] - out[-1][0], p[1] - out[-1][1]) > 0.4:
+            out.append(p)
+    return out
+
+
+def _dir(p, q):
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    if abs(dx) >= abs(dy):
+        return (1 if dx > 0 else -1, 0)
+    return (0, 1 if dy > 0 else -1)
+
+
+class ConnectorRouter:
+    """Choose a port on each symbol and a right-angled path between them.
+
+    A port is the midpoint of one of the symbol's four edges, written into the
+    edge style so draw.io attaches there. The short right-angled shapes are
+    tried for every pair of ports and the shortest one that touches neither a
+    symbol nor (where it can) a label wins. When every simple shape is blocked,
+    an eight-pixel grid search finds a way round: a cell inside a symbol is made
+    ruinously expensive, so any detour beats a box, and the simple shape is kept
+    when no way round exists at all.
+    """
+
+    STUB = 14.0             # the square lead off a port before the first turn
+    BEND = 9.0              # a corner costs a little, so few corners win
+    SYM_COST = 10000.0      # a crossing, when scoring a simple path
+    LBL_COST = 700.0
+    GRID = 8                # grid search resolution
+    CELL_SYM = 1e6          # a symbol cell costs more than any detour
+    CELL_LBL = 4.0          # cost of one searched cell inside a label
+    TURN = 12.0             # extra cost of a corner in the search
+
+    def __init__(self, symbols, labels):
+        self.symbols = dict(symbols)
+        self.labels = labels
+        self._grid = None
+        self.routed = 0
+        self.detoured = 0
+        self.crossed = 0
+
+    # ---- scoring ----------------------------------------------------------
+    def _cost_grid(self):
+        if self._grid is not None:
+            return self._grid
+        g = self.GRID
+        nx, ny = int(PAGE_W // g) + 2, int(PAGE_H // g) + 2
+        cost = [[0.0] * nx for _ in range(ny)]
+
+        def mark(rect, value, pad):
+            i0 = max(0, int((rect[0] - pad) // g))
+            i1 = min(nx - 1, int((rect[2] + pad) // g))
+            j0 = max(0, int((rect[1] - pad) // g))
+            j1 = min(ny - 1, int((rect[3] + pad) // g))
+            for j in range(j0, j1 + 1):
+                row = cost[j]
+                for i in range(i0, i1 + 1):
+                    row[i] += value
+
+        for rect in self.symbols.values():
+            mark(rect, self.CELL_SYM, 2)
+        for rect in self.labels:
+            mark(rect, self.CELL_LBL, 1)
+        self._grid = cost
+        return cost
+
+    def _score(self, pts, ignore=()):
+        """Length, corners and the boxes a path goes through."""
+        sym, lbl = set(), 0
+        length, bends, prev = 0.0, 0, None
+        for p, q in zip(pts, pts[1:]):
+            length += abs(q[0] - p[0]) + abs(q[1] - p[1])
+            d = _dir(p, q)
+            if prev is not None and d != prev:
+                bends += 1
+            prev = d
+        for code, rect in self.symbols.items():
+            if code in ignore:
+                continue
+            if any(_seg_crosses(p, q, rect) for p, q in zip(pts, pts[1:])):
+                sym.add(code)
+        for rect in self.labels:
+            if any(_seg_crosses(p, q, rect) for p, q in zip(pts, pts[1:])):
+                lbl += 1
+        return (length + self.BEND * bends + self.SYM_COST * len(sym)
+                + self.LBL_COST * lbl, len(sym), lbl)
+
+    # ---- simple shapes ----------------------------------------------------
+    def _shapes(self, a, na, b, nb, stub=None):
+        """Every right-angled shape between two ports, stubs included.
+
+        The first segment must leave along the source's normal and the last
+        must arrive along the target's, or a connector would run along an edge
+        instead of out of it. Returns [] when a stub would overshoot - the
+        caller then tries a shorter one.
+        """
+        stub = self.STUB if stub is None else stub
+        A = (a[0] + na[0] * stub, a[1] + na[1] * stub)
+        B = (b[0] + nb[0] * stub, b[1] + nb[1] * stub)
+        mids = []
+        if abs(A[0] - B[0]) < 0.5 or abs(A[1] - B[1]) < 0.5:
+            mids.append([A, B])
+        else:
+            mids.append([A, (B[0], A[1]), B])
+            mids.append([A, (A[0], B[1]), B])
+            mx = (A[0] + B[0]) / 2
+            mids.append([A, (mx, A[1]), (mx, B[1]), B])
+            my = (A[1] + B[1]) / 2
+            mids.append([A, (A[0], my), (B[0], my), B])
+        out = []
+        want_first = (int(na[0]), int(na[1]))
+        want_last = (-int(nb[0]), -int(nb[1]))
+        for mid in mids:
+            pts = _dedupe([a] + mid + [b])
+            if len(pts) < 2:
+                continue
+            if _dir(pts[0], pts[1]) != want_first:
+                continue
+            if _dir(pts[-2], pts[-1]) != want_last:
+                continue
+            if self._cusp(pts, na, nb):
+                continue
+            out.append(pts)
+        return out
+
+    @staticmethod
+    def _cusp(pts, na, nb):
+        """True when the path doubles back over its own stub."""
+        if len(pts) < 3:
+            return False
+        if _dir(pts[1], pts[2]) == (-na[0], -na[1]):
+            return True
+        return _dir(pts[-2], pts[-1]) == (nb[0], nb[1])
+
+    def _simple(self, a, na, b, nb, ignore):
+        """Best simple path; a long stub is not always the kindest.
+
+        A 14 px lead off a port that has a box 10 px away would run into it, so
+        every stub length is scored and the shortest path that keeps clear wins.
+        """
+        best = None
+        for stub in (self.STUB, 6.0, 0.0):
+            for pts in self._shapes(a, na, b, nb, stub):
+                score, sym, lbl = self._score(pts, ignore)
+                if best is None or score < best[0]:
+                    best = (score, sym, lbl, pts)
+        if best is not None:
+            return best
+        pts = _dedupe([a, b])
+        score, sym, lbl = self._score(pts, ignore)
+        return score, sym, lbl, pts
+
+    # ---- grid search for the hard cases -----------------------------------
+    def _search(self, a, na, b, nb, ignore=()):
+        cost = self._cost_grid()
+        g = self.GRID
+        ny, nx = len(cost), len(cost[0])
+        def inside(pt):
+            return any(r[0] + 0.5 < pt[0] < r[2] - 0.5
+                       and r[1] + 0.5 < pt[1] < r[3] - 0.5
+                       for code, r in self.symbols.items() if code not in ignore)
+
+        stub = 0.0
+        for stub in (self.STUB, 8.0, 4.0, 0.0):
+            A = (a[0] + na[0] * stub, a[1] + na[1] * stub)
+            B = (b[0] + nb[0] * stub, b[1] + nb[1] * stub)
+            if not inside(A) and not inside(B):
+                break
+
+        def snap(p):
+            return (min(nx - 1, max(0, int(round(p[0] / g)))),
+                    min(ny - 1, max(0, int(round(p[1] / g)))))
+
+        si, sj = snap(A)
+        ti, tj = snap(B)
+        dirs = ((1, 0), (-1, 0), (0, 1), (0, -1))
+        back = (-1 if na[0] > 0 else 1 if na[0] < 0 else 0,
+                -1 if na[1] > 0 else 1 if na[1] < 0 else 0)
+        out_dir = (1 if nb[0] > 0 else -1 if nb[0] < 0 else 0,
+                   1 if nb[1] > 0 else -1 if nb[1] < 0 else 0)
+
+        def h(i, j):
+            return (abs(i - ti) + abs(j - tj)) * g
+
+        start = (si, sj, int(na[0]), int(na[1]))
+        dist = {start: 0.0}
+        prev = {}
+        heap = [(h(si, sj), 0.0, start)]
+        seen = set()
+        goal = None
+        while heap:
+            _, dcur, st = heapq.heappop(heap)
+            if st in seen:
+                continue
+            seen.add(st)
+            i, j, di, dj = st
+            if (i, j) == (ti, tj) and (di, dj) != out_dir:
+                goal = st
+                break
+            for ndi, ndj in dirs:
+                if (ndi, ndj) == back:
+                    continue
+                ni, nj = i + ndi, j + ndj
+                if not (0 <= ni < nx and 0 <= nj < ny):
+                    continue
+                step = g + cost[nj][ni]
+                if (ndi, ndj) != (di, dj):
+                    step += self.TURN
+                ns = (ni, nj, ndi, ndj)
+                nd = dcur + step
+                if nd < dist.get(ns, float("inf")):
+                    dist[ns] = nd
+                    prev[ns] = st
+                    heapq.heappush(heap, (nd + 1.05 * h(ni, nj), nd, ns))
+        if goal is None:
+            return None
+        cells = []
+        st = goal
+        while st in prev:
+            cells.append((st[0] * g, st[1] * g))
+            st = prev[st]
+        cells.append((si * g, sj * g))
+        cells.reverse()
+
+        pts = [a, A]
+        c0 = cells[0]
+        if abs(c0[0] - A[0]) > 0.5 and abs(c0[1] - A[1]) > 0.5:
+            pts.append((c0[0], A[1]) if abs(na[1]) < 0.5 else (A[0], c0[1]))
+        pts += cells
+        c1 = cells[-1]
+        if abs(c1[0] - B[0]) > 0.5 and abs(c1[1] - B[1]) > 0.5:
+            pts.append((c1[0], B[1]) if abs(nb[1]) < 0.5 else (B[0], c1[1]))
+        pts += [B, b]
+        return self._straighten(_dedupe(pts))
+
+    def _straighten(self, pts):
+        """Fold the grid's staircase into long straight runs."""
+        out = []
+        for p in pts:
+            while len(out) >= 2:
+                q, r = out[-2], out[-1]
+                if (abs(q[0] - r[0]) < 0.05 and abs(r[0] - p[0]) < 0.05) or \
+                   (abs(q[1] - r[1]) < 0.05 and abs(r[1] - p[1]) < 0.05):
+                    out.pop()
+                else:
+                    break
+            out.append(p)
+        def clear(p, q):
+            return (all(not _seg_crosses(p, q, r) for r in self.symbols.values())
+                    and all(not _seg_crosses(p, q, r) for r in self.labels))
+        i = 2
+        while i < len(out) - 3:
+            j = len(out) - 2
+            while j > i + 1:
+                if ((abs(out[i][0] - out[j][0]) < 0.05
+                     or abs(out[i][1] - out[j][1]) < 0.05)
+                        and clear(out[i], out[j])):
+                    del out[i + 1:j]
+                    j = len(out) - 2
+                else:
+                    j -= 1
+            i += 1
+        return out
+
+    # ---- the two entry points ---------------------------------------------
+    def route_boxes(self, a_code, b_code, a_rect=None, b_rect=None):
+        """Best pair of edge midpoints and the waypoints between them."""
+        a_rect = a_rect if a_rect is not None else self.symbols[a_code]
+        b_rect = b_rect if b_rect is not None else self.symbols[b_code]
+        pairs = []
+        for sa in EDGE_SIDES:
+            a = _port(a_rect, sa)
+            for sb in EDGE_SIDES:
+                b = _port(b_rect, sb)
+                pairs.append((abs(a[0] - b[0]) + abs(a[1] - b[1]),
+                              sa, sb, a, b))
+        pairs.sort(key=lambda x: x[0])
+        ignore = (a_code, b_code)
+        cands = []
+        for _, sa, sb, a, b in pairs:
+            score, sym, lbl, pts = self._simple(a, _SIDE_VEC[sa], b,
+                                                _SIDE_VEC[sb], ignore)
+            cands.append((sym, lbl, score, sa, sb, a, b, pts))
+        clean = [c for c in cands if c[0] == 0]
+        if clean:
+            pick = min(clean, key=lambda c: (c[1], c[2]))
+            self.routed += 1
+            return pick[3], pick[4], pick[7][1:-1], 0
+        # Every simple shape crosses a symbol: search round the boxes. Any of
+        # the port pairs may be the one with a way out, not just the shortest,
+        # so the first eight are tried and the cleanest path wins.
+        best = None
+        for cand in sorted(cands, key=lambda c: (c[0], c[2]))[:8]:
+            sym, lbl, score, sa, sb, a, b, _ = cand
+            path = self._search(a, _SIDE_VEC[sa], b, _SIDE_VEC[sb], ignore)
+            if not path:
+                continue
+            gscore, gsym, glbl = self._score(path, ignore)
+            if gsym < sym:
+                key = (gsym, glbl, gscore)
+                if best is None or key < best[0]:
+                    best = (key, sa, sb, path, gsym)
+        if best is not None:
+            _, sa, sb, path, gsym = best
+            self.routed += 1
+            self.detoured += 1
+            self.crossed += 1 if gsym else 0
+            return sa, sb, path[1:-1], gsym
+        pick = min(cands, key=lambda c: (c[0], c[2]))
+        self.routed += 1
+        self.crossed += 1
+        return pick[3], pick[4], pick[7][1:-1], pick[0]
+
+    def route_box_to_point(self, a_code, a_rect, b, nb):
+        """A symbol edge to a fixed point - the feed into an RMU's ODin."""
+        best = None
+        for sa in EDGE_SIDES:
+            a = _port(a_rect, sa)
+            score, sym, lbl, pts = self._simple(a, _SIDE_VEC[sa], b, nb, (a_code,))
+            if best is None or (sym, score) < (best[1], best[0]):
+                best = (score, sym, lbl, pts, sa, a)
+        score, sym, lbl, pts, sa, a = best
+        if sym:
+            path = self._search(a, _SIDE_VEC[sa], b, nb, (a_code,))
+            if path:
+                gs, gsym, _ = self._score(path, (a_code,))
+                if gsym < sym:
+                    pts, sym = path, gsym
+                    self.detoured += 1
+        self.routed += 1
+        self.crossed += 1 if sym else 0
+        return sa, pts[1:-1], sym
+
+    def route_point_to_box(self, a, na, b_code, b_rect):
+        """A fixed point to a symbol edge - a cable from an RMU portion."""
+        best = None
+        for sb in EDGE_SIDES:
+            b = _port(b_rect, sb)
+            score, sym, lbl, pts = self._simple(a, na, b, _SIDE_VEC[sb], (b_code,))
+            if best is None or (sym, score) < (best[1], best[0]):
+                best = (score, sym, lbl, pts, sb, b)
+        score, sym, lbl, pts, sb, b = best
+        if sym:
+            path = self._search(a, na, b, _SIDE_VEC[sb], (b_code,))
+            if path:
+                gs, gsym, _ = self._score(path, (b_code,))
+                if gsym < sym:
+                    pts, sym = path, gsym
+                    self.detoured += 1
+        self.routed += 1
+        self.crossed += 1 if sym else 0
+        return sb, pts[1:-1], sym
+
+    def route_points(self, a, na, b, nb, fixed_a=False, fixed_b=False):
+        """Route from a fixed point (an RMU portion) to another fixed point."""
+        score, sym, lbl, pts = self._simple(a, na, b, nb, ())
+        if sym:
+            path = self._search(a, na, b, nb)
+            if path:
+                gscore, gsym, glbl = self._score(path)
+                if gsym < sym:
+                    score, sym, lbl, pts = gscore, gsym, glbl, path
+                    self.detoured += 1
+        self.routed += 1
+        self.crossed += 1 if sym else 0
+        inner = pts[1:] if fixed_a else pts[1:-1]
+        if fixed_b and inner:
+            inner = inner[:-1]
+        return inner, sym
+
+
 def _project(px, py, ax, ay, bx, by):
     vx, vy = bx - ax, by - ay
     L = vx * vx + vy * vy
@@ -1318,8 +1759,9 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
     cx_pg = sum(P(local[c])[0] for c in net_codes) / len(net_codes)
     cy_pg = sum(P(local[c])[1] for c in net_codes) / len(net_codes)
     taken = []
+    sym_box = {}         # code -> rectangle of its symbol, for the connector router
+    label_boxes = []     # every placed label, as an obstacle for the router
     rmu_cells = {}       # (unit, way) -> (portion rect, free sides) for the cable ends
-    rmu_pin = {}         # unit -> the point on its panel that the leader ends on
 
     # ---- where each node meets the line ------------------------------------
     # The line runs between these points and follows the recorded bends. A symbol
@@ -1337,7 +1779,7 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
         tap[code] = (px, py)
         if code == root_id and root_is_muss and off_map_muss:
             continue                 # placed with the MUSS box, below
-        tap_id[code] = d.vertex("", px - 1.5, py - 1.5, 3, 3, ST_HIDDEN)
+        tap_id[code] = d.vertex("", px - 1.5, py - 1.5, 3, 3, ST_TAP)
 
     def along(code):
         """Unit vector from the parent towards the node - the line's direction."""
@@ -1363,8 +1805,10 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             perp = (-perp[0], -perp[1])
         if kind in ("POLE", "JUNCTION", "FUSE", "LA", "NODE"):
             symbols[code] = d.vertex("", px - 3, py - 3, 6, 6, ST_POLE)
+            sym_box[code] = (px - 3, py - 3, px + 3, py + 3)
             taken.append((px - 3, py - 3, px + 3, py + 3))
-            place_label(d, px, py, code, taken, bw=6, bh=6, w=54, h=11, style=ST_TINY)
+            place_label(d, px, py, code, taken, bw=6, bh=6, w=54, h=11, style=ST_TINY,
+                        out=label_boxes)
             continue
         if kind == "GOS":
             # drawn on the line, so the sheet shows where the break really is
@@ -1380,13 +1824,15 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
                                          ST_GOS_OPEN + f"rotation={math.degrees(ang):.0f};")
                 taken.append((min(px, tip[0]) - 6, min(py, tip[1]) - 6,
                               max(px, tip[0]) + 6, max(py, tip[1]) + 6))
+                sym_box[code] = (px - 2, py - 2, px + 2, py + 2)   # the hinge
                 d.vertex("", px - 3, py - 3, 6, 6, ST_POLE)   # the hinge
             else:
                 symbols[code] = d.vertex("", px - 15, py - 2, 30, 4, ST_GOS)
+                sym_box[code] = (px - 15, py - 2, px + 15, py + 2)
                 taken.append((px - 15, py - 6, px + 15, py + 6))
             txt = (f"<b>{code}</b> (open)<br>{crop_name(item['name'], 18)}" if is_open
                    else f"<b>{code}</b><br>{crop_name(item['name'], 18)}")
-            place_label(d, px, py, txt, taken, bw=30, bh=4, w=104, h=24)
+            place_label(d, px, py, txt, taken, bw=30, bh=4, w=104, h=24, out=label_boxes)
             continue
         if kind == "RMU" and topo:
             # each way is a portion of the panel, and the cable that lands on one
@@ -1396,16 +1842,17 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             cw, ch = RMU_CELL * len(rmu_way_order(reg)) + 6, RMU_H + 18
             bx, by, rect = free_slot(px, py, cw, ch, taken)
             taken.append(rect)
-            rect, cells, box_id, pin = draw_rmu(d, reg, used, bx, by)
+            rect, cells, box_id, _ = draw_rmu(d, reg, used, bx, by)
             taken.append(rect)
             symbols[code] = box_id
-            rmu_pin[code] = pin
+            sym_box[code] = rect
             for way, cell in cells.items():
                 rmu_cells[(code, way)] = cell
             if abs(bx - px) > 2 or abs(by - py) > 2:
                 moved.add(code)
             place_label(d, bx, by, f"<b>{crop_name(item['name'], 26)}</b>", taken,
-                        bw=cw, bh=ch, w=150, h=12)
+                        bw=cw, bh=ch, w=150, h=12, out=label_boxes,
+                        first=(bx - px, by - py))
             continue
         if kind == "RMU":
             bw, bh, style, face = 90, 24, ST_RMU, "RMU"
@@ -1424,10 +1871,11 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
         off = (-perp[0] * 26, -perp[1] * 26)
         bx, by, rect = free_slot(px + off[0], py + off[1], bw, bh, taken, first=perp)
         symbols[code] = d.vertex(face, bx - bw / 2, by - bh / 2, bw, bh, style)
+        sym_box[code] = rect
         taken.append(rect)
         if abs(bx - px) > 2 or abs(by - py) > 2:
             moved.add(code)
-        place_label(d, bx, by, txt, taken, bw=bw, bh=bh)
+        place_label(d, bx, by, txt, taken, bw=bw, bh=bh, out=label_boxes, first=off)
 
     trunk_pg = [P(p) for p in trunk_pts]
 
@@ -1438,7 +1886,7 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
         where = trunk_pg[0]
         anchor_id = d.vertex("", where[0] - 1.5, where[1] - 1.5, 3, 3, ST_HIDDEN)
     else:
-        anchor_id = tap_id.get(root_id) if root_id else None
+        anchor_id = None
         where = P(_metres(muss[0], muss[1], lat0, lon0)) if muss else None
     box = None
     if where is None:
@@ -1482,13 +1930,29 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
     if root_is_muss and off_map_muss:
         tap[root_id] = (box[0] + MUSS_W / 2, box[1] + (MUSS_H + 8) / 2)
         tap_id[root_id] = d.vertex("", tap[root_id][0] - 1.5, tap[root_id][1] - 1.5,
-                                  3, 3, ST_HIDDEN)
+                                  3, 3, ST_TAP)
     m_id = d.vertex(base, box[0], box[1], MUSS_W, MUSS_H + 8, ST_MUSS)
     taken.append(box)
-    if anchor_id and not (root_is_muss and off_map_muss):
-        box_mid = (box[0] + MUSS_W / 2, box[1] + (MUSS_H + 8) / 2)
-        d.edge(m_id, anchor_id, ST_DASH if off_map_muss else ST_TRUNK,
-               points=ortho_route(box_mid, tap.get(root_id, box_mid)) or None)
+
+    # Every cable is routed between the midpoints of symbol edges and around the
+    # symbols and labels already on the sheet. Built once, after the source box,
+    # because the source is one of the obstacles.
+    router = ConnectorRouter({**{c: sym_box[c] for c in symbols if c in sym_box},
+                              "MUSS": box}, label_boxes)
+
+    def nearest_side(rect, toward):
+        return min(EDGE_SIDES, key=lambda s: math.dist(_port(rect, s), toward))
+
+    if anchor_id:                    # surveyed route: the feed reaches its start
+        side = nearest_side(box, trunk_pg[0])
+        d.edge(m_id, anchor_id, ST_TRUNK,
+               points=ortho_route(_port(box, side), trunk_pg[0]) or None,
+               src_side=side)
+    elif root_id and symbols.get(root_id) and not (root_is_muss and off_map_muss):
+        sa, sb, feed, _ = router.route_boxes("MUSS", root_id, a_rect=box,
+                                             b_rect=sym_box[root_id])
+        d.edge(m_id, symbols[root_id], ST_TRUNK, points=feed or None,
+               src_side=sa, tgt_side=sb)
 
     def rmu_end(unit, way, toward):
         """A point on that portion's edge facing `toward`, and the step off it.
@@ -1530,43 +1994,66 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             _, ax, ay = best
             a_id = d.vertex("", ax - 1.5, ay - 1.5, 3, 3, ST_HIDDEN)
             if code in symbols:
-                d.edge(a_id, symbols[code], ST_STUB)
+                side = nearest_side(sym_box[code], (ax, ay))
+                port = _port(sym_box[code], side)
+                d.edge(a_id, symbols[code], ST_STUB,
+                       points=ortho_route(port, (ax, ay), min_run=1) or None,
+                       tgt_side=side)
             continue
-        if not parent_code or parent_code not in tap_id or code not in symbols:
+        if not parent_code or code not in symbols:
             continue
-        # a cable off an RMU leaves by the portion the workbook names, so the line
-        # starts at that compartment and not at the unit's box
-        src_id, src_pt = tap_id[parent_code], tap[parent_code]
-        lead, way = None, item.get("way") or ""
-        if (parent_code, way) in rmu_cells:   # leave by the edge facing its node
-            src_id, src_pt, lead = rmu_end(parent_code, way, tap[code])
-        # a unit is fed through ODin: the feed meets that portion, on the edge
-        # facing the parent
-        tgt_id, tgt_pt, tgt_lead = tap_id[code], tap[code], None
-        if (code, "ODin") in rmu_cells:
-            tgt_id, tgt_pt, tgt_lead = rmu_end(code, "ODin", src_pt)
+        # A cable starts on a symbol edge, or on the unit's portion when the
+        # workbook names the way it leaves by. The same holds for the unit it feeds.
+        way = item.get("way") or ""
+        src_fixed = (parent_code, way) in rmu_cells
+        tgt_fixed = (code, "ODin") in rmu_cells
+        src_sym = "MUSS" if (parent_code == root_id and root_is_muss) else parent_code
+        if not src_fixed and src_sym not in router.symbols:
+            continue
         spur = (item.get("spur") or "T").upper()
         style = ST_GUESS if why else (ST_TRUNK if spur == "T" else ST_GEO)
-        # a bend off the edge would drag the line past the paper: the span from an
-        # off-map substation is not to scale, so its shape is not used
+
+        src_rect = box if src_sym == "MUSS" else sym_box[src_sym]
+        src_id = m_id if src_sym == "MUSS" else symbols[src_sym]
+        src_pt = ((src_rect[0] + src_rect[2]) / 2, (src_rect[1] + src_rect[3]) / 2)
+        na = None
+        if src_fixed:
+            src_id, src_pt, lead = rmu_end(parent_code, way, tap[code])
+            n = math.hypot(lead[0], lead[1]) or 1.0
+            na = (lead[0] / n, lead[1] / n)
+        tgt_id = symbols[code]
+        tgt_pt = ((sym_box[code][0] + sym_box[code][2]) / 2,
+                  (sym_box[code][1] + sym_box[code][3]) / 2)
+        nb = None
+        if tgt_fixed:
+            tgt_id, tgt_pt, lead = rmu_end(code, "ODin", src_pt)
+            n = math.hypot(lead[0], lead[1]) or 1.0
+            nb = (lead[0] / n, lead[1] / n)
+
+        # a recorded bend defines the shape of the span: keep its corners
         if parent_code == root_id and root_is_muss and off_map_muss:
             bends_here = []
         else:
             bends_here = list((bends or {}).get((parent_code, code), []))
         surveyed = [P(_metres(lat, lon, lat0, lon0)) for _, lat, lon in bends_here]
-        if surveyed:                  # a recorded shape: its corners, as surveyed
-            route = surveyed
-        elif tgt_lead:                # enter ODin square to the edge it lands on, so
-            end = (tgt_pt[0] + tgt_lead[0], tgt_pt[1] + tgt_lead[1])   # the feed turns
-            route = ortho_route(src_pt, end, min_run=1)               # even when short
-        else:                         # nothing recorded: right angles, not a diagonal
-            out = (src_pt[0] + lead[0], src_pt[1] + lead[1]) if lead else src_pt
-            # a cable off a panel leaves square to it even on a short run, so the
-            # portions stay readable; anywhere else a short hop stays straight
-            route = ([out] if lead else []) + ortho_route(out, tgt_pt, min_run=1 if lead else 70)
-        d.edge(src_id, tgt_id, style, points=route or None)
-        if code in moved:            # a panel hangs off its point on a short leader
-            d.edge(tap_id[code], rmu_pin.get(code) or symbols[code], ST_STUB)
+        if surveyed:
+            sa = None if src_fixed else nearest_side(src_rect, surveyed[0])
+            sb = None if tgt_fixed else nearest_side(sym_box[code], surveyed[-1])
+            d.edge(src_id, tgt_id, style, points=surveyed, src_side=sa, tgt_side=sb)
+        elif src_fixed and tgt_fixed:
+            route, _ = router.route_points(src_pt, na, tgt_pt, nb,
+                                           fixed_a=True, fixed_b=True)
+            d.edge(src_id, tgt_id, style, points=route or None)
+        elif src_fixed:
+            sb, route, _ = router.route_point_to_box(src_pt, na, code, sym_box[code])
+            d.edge(src_id, tgt_id, style, points=route or None, tgt_side=sb)
+        elif tgt_fixed:
+            sa, route, _ = router.route_box_to_point(src_sym, src_rect, tgt_pt, nb)
+            d.edge(src_id, tgt_id, style, points=route or None, src_side=sa)
+        else:
+            sa, sb, route, _ = router.route_boxes(src_sym, code)
+            d.edge(src_id, tgt_id, style, points=route or None,
+                   src_side=sa, tgt_side=sb)
         # a lateral is named at the point it leaves the trunk, once SPURS names it
         spur_tag = (spur_labels or {}).get(spur)
         if (spur_tag and spur and spur != "T"
@@ -1574,7 +2061,43 @@ def build_geo(dtcs, hts, label, station, muss=None, route=None, rmus=(),
             place_label(d, (tap[parent_code][0] + tap[code][0]) / 2,
                         (tap[parent_code][1] + tap[code][1]) / 2,
                         f"<b>{spur}</b> {spur_tag}", taken, bw=8, bh=8, w=110, h=11,
-                        style=ST_TINY)
+                        style=ST_TINY, out=label_boxes)
+
+    # ---- position leaders ---------------------------------------------------
+    # A symbol that had to move off a crowded spot keeps its surveyed point: a
+    # thin leader ties the point to the nearest edge midpoint of the symbol.
+    for code in sorted(moved):
+        if not (code in tap_id and code in symbols and code in sym_box):
+            continue
+        rect = sym_box[code]
+        pick = None
+        for side in EDGE_SIDES:      # nearest clean edge, not just the nearest
+            port = _port(rect, side)
+            elbow = None
+            if (abs(tap[code][0] - port[0]) >= 0.5
+                    and abs(tap[code][1] - port[1]) >= 0.5):
+                elbow = ((port[0], tap[code][1]) if side in ("top", "bottom")
+                         else (tap[code][0], port[1]))
+            pts = [tap[code]] + ([elbow] if elbow else []) + [port]
+            sym_hits, lbl_hits = 0, 0
+            for other, r in router.symbols.items():
+                if other != code and any(_seg_crosses(p, q, r)
+                                         for p, q in zip(pts, pts[1:])):
+                    sym_hits += 1
+            for r in router.labels:
+                if any(_seg_crosses(p, q, r) for p, q in zip(pts, pts[1:])):
+                    lbl_hits += 1
+            length = sum(abs(q[0] - p[0]) + abs(q[1] - p[1])
+                         for p, q in zip(pts, pts[1:]))
+            key = (sym_hits, lbl_hits, length)
+            if pick is None or key < pick[0]:
+                pick = (key, side, elbow)
+        _, side, elbow = pick
+        d.edge(tap_id[code], symbols[code], ST_STUB,
+               points=[elbow] if elbow else None, tgt_side=side)
+    if router.routed:
+        print(f"  connectors  : {router.routed} routed, {router.detoured} round a box, "
+              f"{router.crossed} still crossing one")
 
     # ---- furniture ---------------------------------------------------------
     source = ("surveyed route" if trunk_pts else
@@ -2165,6 +2688,31 @@ def build_topology_template(master_path: str, out_path: str) -> str:
 # ----------------------------------------------------------------------------
 # preview (optional) - draws the same coordinates with PyMuPDF
 # ----------------------------------------------------------------------------
+def _border_point(shape, toward):
+    """Where a line from a shape's centre to `toward` leaves its rectangle.
+
+    draw.io does this clipping itself for a connector that has no exit point;
+    the preview has to do it too or its lines run through the symbols.
+    """
+    x, y, w, h = shape[:4]
+    cx, cy = x + w / 2, y + h / 2
+    dx, dy = toward[0] - cx, toward[1] - cy
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return cx, cy
+    ts = []
+    if abs(dx) > 1e-9:
+        ts.append(((x + w if dx > 0 else x) - cx) / dx)
+    if abs(dy) > 1e-9:
+        ts.append(((y + h if dy > 0 else y) - cy) / dy)
+    t = min(t for t in ts if t >= 0)
+    return cx + dx * t, cy + dy * t
+
+
+def _style_float(style: str, key: str):
+    m = re.search(rf"(?:^|;){key}=(-?\d+(?:\.\d+)?)(?:;|$)", style)
+    return float(m.group(1)) if m else None
+
+
 def preview(xml: str, out_png: str, page_idx: int = 0):
     try:
         import fitz
@@ -2191,13 +2739,23 @@ def preview(xml: str, out_png: str, page_idx: int = 0):
         elif c.get("edge") == "1":
             pts = [(float(p.get("x")), float(p.get("y")))
                    for p in g.findall("./Array/mxPoint")]
-            edges.append((c.get("source"), c.get("target"), pts))
+            edges.append((c.get("source"), c.get("target"), pts, c.get("style") or ""))
 
-    for s, t, pts in edges:
+    for s, t, pts, style in edges:
         if not (s in shapes and t in shapes):
             continue
         a, b = shapes[s], shapes[t]
-        chain = [(a[0] + a[2] / 2, a[1] + a[3] / 2)] + pts + [(b[0] + b[2] / 2, b[1] + b[3] / 2)]
+        ac = (a[0] + a[2] / 2, a[1] + a[3] / 2)
+        bc = (b[0] + b[2] / 2, b[1] + b[3] / 2)
+        ex, ey = _style_float(style, "exitX"), _style_float(style, "exitY")
+        nx, ny = _style_float(style, "entryX"), _style_float(style, "entryY")
+        start = ((a[0] + a[2] * ex, a[1] + a[3] * ey)
+                 if ex is not None and ey is not None
+                 else _border_point(a, pts[0] if pts else bc))
+        end = ((b[0] + b[2] * nx, b[1] + b[3] * ny)
+               if nx is not None and ny is not None
+               else _border_point(b, pts[-1] if pts else ac))
+        chain = [start] + pts + [end]
         for p, q in zip(chain, chain[1:]):
             page.draw_line(fitz.Point(p[0] * scale, p[1] * scale),
                            fitz.Point(q[0] * scale, q[1] * scale),
@@ -2215,6 +2773,14 @@ def preview(xml: str, out_png: str, page_idx: int = 0):
             dx, dy = math.cos(ang) * r.width / 2, -math.sin(ang) * r.width / 2
             page.draw_line((cx - dx, cy - dy), (cx + dx, cy + dy),
                            color=(0.42, 0.56, 0.75), width=1.2)
+            continue
+        hidden = "fillColor=none" in style and "strokeColor=none" in style
+        if hidden:
+            continue                    # an anchor, not a mark on the drawing
+        if "ellipse;" in style and w <= 8 and h <= 8:
+            c = fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
+            page.draw_circle(c, max(r.width, r.height) / 2, color=(0.42, 0.56, 0.75),
+                             fill=(0.42, 0.56, 0.75), width=0.4)
             continue
         if "text;" not in style:
             page.draw_rect(r, color=(0.42, 0.56, 0.75),
