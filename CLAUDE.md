@@ -42,6 +42,7 @@ docs/README.md                   the user manual
 docs/CHANGELOG.md                newest entry on top, dated
 docs/SESSION_HANDOFF.md          state of play, updated at the end of a work session
 docs/TOPOLOGY_DATA_REQUIREMENTS.md   field specification for the connection data
+docs/FIELD_CAPTURE.md            proposal: field capture -> workbook, not implemented
 CLAUDE.md                        this file
 template/MESCOM_SLD_TEMPLATE.drawio   blank A3 sheet + symbol library (2 pages)
 template/TOPOLOGY TEMPLATE.xlsx       the blank collection workbook - never fill this one

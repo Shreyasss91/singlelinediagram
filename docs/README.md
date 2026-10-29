@@ -23,7 +23,8 @@ SLD TOOL\
 │   ├── README.md                  this manual
 │   ├── CHANGELOG.md               change history
 │   ├── SESSION_HANDOFF.md         state of play, updated at the end of a session
-│   └── TOPOLOGY_DATA_REQUIREMENTS.md  what to record to get a real trunk and spurs
+│   ├── TOPOLOGY_DATA_REQUIREMENTS.md  what to record to get a real trunk and spurs
+│   └── FIELD_CAPTURE.md           proposal: collecting the tree in the field
 ├── CLAUDE.md                      working guide for changing the tool
 ├── template\
 │   ├── MESCOM_SLD_TEMPLATE.drawio blank A3 sheet + symbol library
@@ -48,6 +49,7 @@ Commands are run from the root, too.
 | `docs/CHANGELOG.md` | Every change, newest first. |
 | `docs/SESSION_HANDOFF.md` | Where the work stands, and what is next. |
 | `docs/TOPOLOGY_DATA_REQUIREMENTS.md` | The data-collection guide: what is missing, the field specification, how spurs are derived, where to get each item. |
+| `docs/FIELD_CAPTURE.md` | Proposal, nothing implemented: capturing the tree by the order nodes are visited, positioning without GPS, snapping track to nodes, and what that unlocks (voltage drop, loss, evolution). |
 | `template/MESCOM_SLD_TEMPLATE.drawio` | Two-tab template: a blank A3 sheet and a symbol library (MUSS, DTC, HT, GOS, RMU, junction, bus). |
 | `template/TOPOLOGY TEMPLATE.xlsx` | One row per node with its parent. Pre-filled from the master with a first-draft connection; see §8 and `docs/TOPOLOGY_DATA_REQUIREMENTS.md`. This is the blank, not your working copy. |
 | `template/route_template.csv` | Format sample for surveyed pole coordinates (`--route`). Values are examples only; the optional `WAY` column shows a run entering and leaving an RMU. |

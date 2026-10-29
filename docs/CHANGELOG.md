@@ -6,7 +6,52 @@ generator up to its current state.
 
 ---
 
-## 2026-10-29 · Newest — a connector meets a symbol at an edge midpoint
+## 2026-10-29 · Newest — `FIELD_CAPTURE.md`: one walk, then the software takes over
+
+The drawings are only as true as `PARENT_ID`, and `--list` still reports **114 of 129** node rows
+`INFERRED` with 15 parentless. More GPS cannot close that: the master already positions 113 of 119
+DTCs. What is missing is **connectivity**, and a coordinate cannot supply it. The new document is a
+plan for collecting the tree once in the field — proposal only, nothing in it is implemented, and
+it says so at the top and in §12.
+
+### Added
+- **`docs/FIELD_CAPTURE.md`**, in twelve sections:
+  - **Three layers kept apart** — connectivity, route, switch state. A KMZ walk supplies the middle
+    one; the schematic sheet needs none of it, only order, branch side and pole count.
+  - **Order of visit is the topology** — a feeder walked out and back is an Euler tour of the tree,
+    and a stack rebuilds every parent from the tap sequence in one pass, with a worked example
+    (`MUSS, P1, P2, SCD-42, P2, …`) and a table of the four ways the walk can go wrong.
+  - **Positioning without GPS** — order only, pole counts between taps, pole-number OCR, imagery
+    digitising, QR/asset plates, compass-and-step dead reckoning, AR offset measuring, landmark
+    notes, Bluetooth RTK, phone GPS — each with what it gives, its accuracy, its cost and a verdict.
+  - **Snapping rules** — poles are control points and the track is filler; the line is never bent to
+    a DTC whose plinth sits 10–40 m off the road (the service tap is projected instead); a DTC
+    60–150 m off the route is flagged, not attached; a surveyed tap beats the track; a gap is
+    printed, never smoothed.
+  - **What no sensor records** — RMU ways, `NC`/`NO`, conductor, phase, pole number, photos, ties.
+  - **Output contract** — the pipeline writes `field_data/TOPOLOGY.xlsx`, so the generator needs no
+    change. Proposed additions: a `TIES` sheet for rings a tree cannot hold, `STATUS`/`AS_OF` for
+    append-only evolution and `--as-of` regeneration, and pole rows made compulsory in a survey.
+  - **Tooling ladder** — existing GIS layer first, then tablet plus template for one feeder, then
+    `field_import.py` (GPX + tap order → workbook → `validate_topology()` → gap report), then an app
+    only if the work repeats. QField and OsmAnd already cover most of the second step for free.
+  - **Downstream** — span lengths and per-section kVA from the tree, voltage regulation with the
+    per-span formulas and an indicative conductor table, and an explicit boundary on loss work: the
+    field gives `R`, billing/MIS gives the load shape.
+
+### Changed
+- **`docs/README.md`** — the document table and the repository tree name the new file.
+- **`CLAUDE.md`** — layout tree.
+- **`docs/SESSION_HANDOFF.md`** — Update 10 records the proposal and that the code did not change.
+
+### Not changed
+- **No code, workbook or template.** `sld_generator.py` still reads the same four sheets; there is
+  no GPX reader, no `TIES`, `STATUS` or `AS_OF` column, and no voltage-drop calculation anywhere.
+  The document states this in §12 rather than implying otherwise.
+
+---
+
+## 2026-10-29 — a connector meets a symbol at an edge midpoint
 
 The runs used to start at the surveyed point behind a symbol and stop wherever the line happened to
 cross its border. They now leave and enter at the **midpoint of one of the symbol's four edges**, on

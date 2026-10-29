@@ -46,6 +46,15 @@
 > grid search when a box blocks them all). The surveyed-point dot is now visible, its leader is
 > square and picks a clean edge, and labels sit on the far side of a tapped symbol and are routing
 > obstacles. §5.6/§5.8 and §7 are current; the data issues in §8/§9 are unchanged.
+>
+> **Update 10 (29 October 2026):** `docs/FIELD_CAPTURE.md` is new — a proposal for collecting the
+> tree in the field and deriving the rest. Nothing in it is implemented and no code changed. Its
+> conclusions: the gap is connectivity, not position (114 of 129 rows are `INFERRED` while 113 of
+> 119 DTCs already have GPS); a feeder walked out and back is an Euler tour, so **the order nodes
+> are tapped rebuilds every parent** without any distance test; a GPS fix is only needed to confirm
+> which DTC is in front of you, and order plus pole counts plus pole numbers do the rest; the
+> pipeline's output is the existing `field_data/TOPOLOGY.xlsx`, so the generator needs no change.
+> Open decisions are listed in its §11.
 
 ---
 
@@ -79,6 +88,7 @@ remaining missing GPS, and pole-level detail for the feeders that still have non
 | `template/route_template.csv` | <1 KB | Format sample for `--route` (values are invented). |
 | `docs/README.md` | 41 KB | User-facing manual. |
 | `docs/TOPOLOGY_DATA_REQUIREMENTS.md` | 27 KB | The field specification for the connection data. |
+| `docs/FIELD_CAPTURE.md` | 18 KB | Proposal: field capture → workbook → drawings. **Nothing implemented.** |
 | `docs/CHANGELOG.md` | 45 KB | Every change, newest first. |
 | `docs/SESSION_HANDOFF.md` | 24 KB | This document. |
 | `CLAUDE.md` | 15 KB | Working guide for an agent picking the repository up. |
