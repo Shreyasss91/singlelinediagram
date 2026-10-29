@@ -6,7 +6,40 @@ generator up to its current state.
 
 ---
 
-## 2026-10-29 · Newest — `FIELD_CAPTURE.md`: one walk, then the software takes over
+## 2026-10-29 · Newest — `FIELD_CAPTURE.md`: which method, and the walk in detail
+
+The first draft listed the methods and stopped there. It did not say which one wins on this network,
+nor what “order + pole-number photo” looks like on the ground — the two things a field team needs
+before a single tap is made.
+
+### Added
+- **The verdict, at the head of §4** — order + a pole-number photo, with the phone's GPS used only as
+a pointer, because a 5–15 m fix in a 4–6 m lane with two feeders on the same poles is the least
+reliable method on the list, while the tap order is unaffected by drift and the photo carries the
+facts no coordinate can.
+- **§4.1 Which method, per feeder** — `MRS F1` full walk, one day; `Mandli F13/F22/F3` imagery
+digitising plus one fast walk, about a third of a day each; HT services and RMUs by photo on the same
+visit. Two to three field days in total, against 2–4 h *per feeder* for tier 1 alone. The table also
+records the two things that would remove it: an existing MESCOM line layer, or a schematic-only
+deliverable.
+- **§4.2 The walk, in detail** — preparation (printed DTC list, offline tiles, a route rooted at the
+MUSS, the lineman, full or fast mode, a pen); the per-node record table (tap, pole-number photo,
+conductor, phase, kVA, `NORMALLY`, `WAY`, photo); the **return-tap rule** that makes the §3
+reconstruction work; the desk work afterwards; and an accuracy/effort table for the two modes.
+- **The costliest mistake, named** — a missed return tap re-parents a whole lateral, still passes
+`validate_topology()` because the result is a valid tree, and surfaces only when the drawing is
+compared with the field.
+
+### Changed
+- **`docs/SESSION_HANDOFF.md`** — Update 10 records the revision.
+
+### Not changed
+- No code, workbook or template. Still no GPX reader, no `TIES`, `STATUS` or `AS_OF` column, and no
+voltage-drop or loss calculation.
+
+---
+
+## 2026-10-29 — `FIELD_CAPTURE.md`: one walk, then the software takes over
 
 The drawings are only as true as `PARENT_ID`, and `--list` still reports **114 of 129** node rows
 `INFERRED` with 15 parentless. More GPS cannot close that: the master already positions 113 of 119

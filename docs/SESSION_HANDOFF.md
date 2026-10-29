@@ -54,7 +54,10 @@
 > are tapped rebuilds every parent** without any distance test; a GPS fix is only needed to confirm
 > which DTC is in front of you, and order plus pole counts plus pole numbers do the rest; the
 > pipeline's output is the existing `field_data/TOPOLOGY.xlsx`, so the generator needs no change.
-> Open decisions are listed in its §11.
+> Open decisions are listed in its §11. A revision the same day adds the verdict (order plus a
+> pole-number photo, GPS as a pointer only), **§4.1** with the recommended method per feeder and the
+> effort it implies, and **§4.2**, the walk in detail — the per-node record, the return tap at every
+> branch point, and the two modes (full: every pole, fast: pole counts typed).
 
 ---
 

@@ -117,8 +117,101 @@ A phone does not need a position fix to give most of the value. In decreasing or
 | **Bluetooth RTK GNSS** | survey-grade fixes | 1–2 cm | receiver + subscription | hire for a benchmark survey; overkill for 119 DTCs |
 | **Phone GPS** | confirms you are at the right DTC | 5–15 m, worse in lanes and under the line | free | confirms; does not decide |
 
-The order of that table is the recommendation: **order + pole counts + pole numbers, imagery for the
-rural runs, GPS only to confirm the DTC in front of you.**
+**The recommendation is order + a pole-number photo, with the phone's GPS used only as a pointer.**
+Not because GPS is unavailable, but because it is the least accurate method on that list in exactly
+the place it is needed most: a town lane 4–6 m wide, with two feeders on some poles, defeats a 5–15 m
+fix. The order of the taps is unaffected by drift, and the photo carries the facts no coordinate can.
+
+### 4.1 Which method, per feeder
+
+| Feeder | DTCs | Method | Geometry from | Effort |
+|---|---|---|---|---|
+| `MRS F1` | 63 | full walk — order + pole numbers + photo per node | pole taps; imagery is useless in the lanes | 1 day with the lineman |
+| `Mandli F13` | 19 | imagery digitising + one fast walk for the electrical facts | offline satellite tiles, open ground | ⅓ day |
+| `Mandli F22` | 32 | same | same | ⅓ day |
+| `Mandli F3` | 5 | same | same | hours |
+| five HT services | 5 | photo of the nameplate and the pole number | none needed | minutes, on the same walk |
+| each RMU | — | photo of the door; the ways are written beside the switches | the unit's own coordinates | minutes |
+
+**Two to three field days, one lineman, one phone** for all four feeders — against 2–4 h *per
+feeder* to transcribe the hand SLD for tier 1 alone, and the walk also returns conductor, phase and
+switch state that transcribing cannot.
+
+Two things would change this table: if MESCOM already holds an 11 kV line layer, digitising imagery
+is unnecessary and the walk collects only the electrical facts; and if only the schematic is ever
+submitted, geometry can be skipped entirely — then it is half a day per feeder of typing the order
+into the template, with no phone involved at all.
+
+### 4.2 The walk, in detail
+
+The method has three phases and one rule that matters more than the rest.
+
+**Before the walk — half a day of preparation**
+
+1. Filter `field_data/TOPOLOGY.xlsx` to one feeder and **print the DTC list**: code, name, kVA, GPS.
+   That sheet is the checklist. The tree is not written during the walk; only the order is.
+2. Load the feeder's known nodes into the phone app as a layer, with offline tiles, so the GPS dot
+   can answer *which known DTC is nearest*. That is the only job it has.
+3. Fix the route: start at the MUSS and end at the far end of the last lateral. Never start in the
+   middle of a feeder — the stack in §3 assumes the walk is rooted at the source.
+4. Take the lineman. Every method in §4 is worse without the person who operates the feeder.
+5. Choose the mode and write it on the sheet:
+   * **full** — every pole tapped. Exact branch points, measured spans, one day per town feeder.
+   * **fast** — DTCs, GOS, RMUs, branch poles and the pole a DTC taps, plus *a typed count of the
+     poles passed* between taps. Half a day, lengths to ±15 %.
+6. Carry a power bank and a pen. The tap number is written on the printed sheet as it is made —
+   if the phone dies, the order survives on paper.
+
+**At each node — 30–60 seconds**
+
+| Record | How | When |
+|---|---|---|
+| the tap itself (`NODE_ID`) | confirm the nearest code in the app; a pole not on the list becomes a new `P-###` | always |
+| running tap number | written on the printed sheet | always |
+| pole number | one photo, number legible | where painted |
+| conductor | pick from `3x95 ABC`, `3x25 ABC`, `Rabbit`, `Weasel`, `other` | full walk |
+| phase | 3 or 1, from the crossarm or the DTC nameplate | always |
+| kVA | only if the nameplate disagrees with the sheet | at a DTC |
+| `NORMALLY` | the blade position, `NC` or `NO` | at a GOS |
+| `WAY` | which of the five ways has a cable, and its state | at an RMU |
+| photo | pole number, nameplate, unit door | every node |
+
+A DTC on a plinth beside the road is tapped **after** the pole it taps, never inserted between two
+poles of the line. Two DTCs on one pole are two taps at the same pole — which is what tells the tree
+they share a parent, and is invisible to any coordinate.
+
+**The rule: tap the branch point again on the way back.** Walk each lateral to its end, return to the
+junction, and tap the junction a second time. That repeat is the only signal that a spur ended. Skip
+it and two laterals merge into one chain — silently, and in a way that reads as plausible on the
+sheet until someone compares it with the field.
+
+**After the walk — one to two hours at the desk**
+
+1. Transcribe the tap numbers into `NODES` in walk order: `PARENT_ID` by §3, `SPUR_ID` from the
+   branch structure, `BASIS = SURVEYED`.
+2. Type conductor, phase, `NORMALLY` and the ways from the photos.
+3. Run `validate_topology()`. `--list` should report **0 `INFERRED`** for that feeder.
+4. If a track was recorded, run it through the importer (§8.1) and work the gap report; if not,
+   leave the spans straight — that is a valid submission (§5.6).
+
+**Why the photo earns its tap.** The pole number is the only identifier that survives a re-survey and
+joins the row to the section's pole register. The conductor and the switch state cannot be recovered
+later at any price, and one frame per node costs about a second. A photo also settles the two
+cases that geometry always gets wrong: two DTCs sharing a pole, and a lateral that leaves and
+rejoins the same road.
+
+**Accuracy and effort**
+
+| | Full mode | Fast mode |
+|---|---|---|
+| topology | exact, given the return taps | exact, given the return taps |
+| span length | pole to pole, ±5–10 m | count × 40–50 m, ±15 % |
+| time per node | 40–60 s | 30–45 s |
+| one town feeder (63 DTCs) | 1 day | half a day |
+
+The costliest mistake is the missed return tap: it re-parents a whole lateral, passes
+`validate_topology()` because the result is still a tree, and only shows up when the drawing is
+compared with the field.
 
 There is also a no-phone method that beats all of them on effort for tier 1: transcribing the
 hand-drawn SLD into the template, 2–4 h per feeder (`TOPOLOGY_DATA_REQUIREMENTS.md` §10). A walk is
