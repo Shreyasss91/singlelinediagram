@@ -62,6 +62,14 @@
 > needs its own fix because the reader does not interpolate) and **§7.5** (`LAT`/`LONG` are placement,
 > never evidence), and corrects `TOPOLOGY_DATA_REQUIREMENTS.md` §4.1, which had promised interpolation
 > the code does not do.
+>
+> **Update 11 (29 October 2026):** the three legacy sheets in `field_data/test/` were converted to
+> drawio with a new companion, **`docx_to_drawio.py`**. The PNGs are 600 dpi renders; the DOCX holds
+> 812 vector shapes, so the importer reads `word/document.xml`, not the image. Output is
+> `outputs/2026-10-29/legacy/SLD_MRSF1_and_BHRoad_legacy.drawio`: three pages (MRS F1, Proposed BH
+> Road, Residual MRS F1), 482/209/283 cells, no duplicate ids. It is a redraw — frame and text
+> insets are approximated and pages are re-centred — so compare a page with its PNG before
+> submitting. The generator, the master and the topology workbook are untouched.
 
 ---
 

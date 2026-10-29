@@ -16,6 +16,7 @@ never disagree.
 ```
 SLD TOOL\
 ├── sld_generator.py               the tool
+├── docx_to_drawio.py              companion: legacy Word drawing -> .drawio
 ├── field_data\
 │   ├── DTC DETAILS U4.xlsx        the DTC master it reads
 │   └── TOPOLOGY.xlsx              the connection workbook you fill in
@@ -43,6 +44,7 @@ Commands are run from the root, too.
 | Path | Purpose |
 |---|---|
 | `sld_generator.py` | The whole tool. Reads the workbook, writes `.drawio` files, optionally renders a PNG preview. |
+| `docx_to_drawio.py` | Companion importer: a legacy Word drawing (`.docx` with Word shapes) becomes an editable `.drawio`, one page per Word page. Reads the DOCX, never a PNG. See §9. |
 | `field_data/DTC DETAILS U4.xlsx` | The DTC master. **The script reads this file from here by default.** |
 | `field_data/TOPOLOGY.xlsx` | Your copy of the connection workbook, and the one you fill in. Kept apart from `template/` so a template rebuild can never overwrite field work. **Both layouts are drawn from this file**; see §8. |
 | `docs/README.md` | This manual. |
@@ -643,6 +645,31 @@ Once open:
 * To tidy a dense area, move the junction dots rather than the symbols.
 * **Save your edited copy under a new name.** Regenerating writes into today's folder and overwrites
   the generated file of the same name there — and nothing older.
+
+### Importing a legacy Word drawing
+
+`docx_to_drawio.py` turns a sheet made in Word — the drawings this tool replaced — into an editable
+`.drawio`, one page per Word page:
+
+```bash
+python docx_to_drawio.py "field_data/test/SLD_MRSF1_Feeder_and_BHRoad_Feeder.docx" \
+    --out "outputs/2026-10-29/legacy/SLD_MRSF1_and_BHRoad_legacy.drawio"
+```
+
+**It reads the DOCX, not the PNG.** A page of that document is ~400 vector shapes; a 600 dpi render
+of it is pixels, and no tracer can turn pixels back into named DTC symbols. The DOCX still has the
+shapes, so that is what the converter reads. Rectangles, the DTC `frame` (written as two concentric
+squares), lines, rounded MUSS boxes, labels and kVA numbers are mapped 1:1 at 1 in = 100 px, the same
+A3 units the generator uses.
+
+It is a redraw, not a facsimile. Word's frame inset and text-box insets are approximated, the page is
+re-centred rather than placed at Word's own offset, and a label may sit a few pixels from where Word
+put it. **Compare the result with the PNG export before submitting it.** Anchors Word placed outside
+the page (one stray shape per page in the sample, at x ≈ 18.8 in) are dropped and counted.
+
+The import is one-way and offline: it does not touch the master, the topology workbook or the
+generator. Once a page is in draw.io it is edited like any other sheet, and the data-driven path
+(`--feeder … --geo`) stays the way to regenerate it.
 
 ---
 

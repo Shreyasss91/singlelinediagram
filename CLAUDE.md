@@ -24,6 +24,7 @@ python sld_generator.py --feeder "MRS F1" --route template\route_template.csv
 python sld_generator.py --template                                      # rewrite the blank drawio template
 python sld_generator.py --topology-template --out "%TEMP%\tt.xlsx"      # rebuild the topology workbook, not in place
 python sld_generator.py --topology-template --force                     # ... over the shipped blank
+python docx_to_drawio.py legacy.docx --out "outputs\legacy\name.drawio"  # legacy Word sheet -> drawio
 ```
 
 Output goes to `outputs\<YYYY-MM-DD>\`, one folder per run day, `--outdir` / `--out` to override.
@@ -36,6 +37,7 @@ test suite.
 
 ```
 sld_generator.py                 the whole tool (~2980 lines, no packages)
+docx_to_drawio.py                companion: a legacy Word drawing -> editable .drawio
 field_data/DTC DETAILS U4.xlsx   the master workbook - the register of record
 field_data/TOPOLOGY.xlsx         your filled-in connection workbook - read by --geo, never written by the tool
 docs/README.md                   the user manual
@@ -193,6 +195,12 @@ Verification scripts are throwaway — put them in the temp folder, not the repo
 - **The connection workbook is read, never written.** `--topology-template --force` rewrites only
   `template/TOPOLOGY TEMPLATE.xlsx`; `field_data/TOPOLOGY.xlsx` is field work. If a stray cell there
   is wrong, say so — do not correct it for the user.
+- **A legacy sheet's source is the DOCX, not the PNG.** `docx_to_drawio.py` reads DrawingML shapes
+  from `word/document.xml`; the 9923 × 7017 PNGs in `field_data/test/` are renders with no shape
+  identity left. Never "improve" the converter by tracing the raster. Its output is a redraw: frame
+  insets, text-box insets and Word's page offset are approximated, so compare against the PNG before
+  anyone relies on a converted sheet. Anchors Word places outside the page are dropped deliberately
+  (one stray shape per page in the sample); do not "recover" them into the drawing.
 - **`field_data/TOPOLOGY.xlsx` has a stale register row.** `RMU WAYS!D14`
   (`RMU-RAMANNA-SHETTY-PARK` / `VL1`) says `N` while `P-001` leaves by `VL1`, so every F13 run prints
   the warning. That is the workbook, not the code. Compare with the file's own `git diff` before
@@ -232,6 +240,7 @@ A change is not finished until the documents agree with the code. Depending on t
 | CLI option, layout, output name | `docs/README.md` (options table, relevant section) |
 | Master column / sheet | `docs/README.md` §3, `docs/TOPOLOGY_DATA_REQUIREMENTS.md`, workbook READ ME |
 | Topology schema, validation | `docs/TOPOLOGY_DATA_REQUIREMENTS.md` (§ field spec, § validation rules, worked example), `docs/README.md` §8, regenerated `template/TOPOLOGY TEMPLATE.xlsx` |
+| `docx_to_drawio.py` behaviour or mapping | `docs/README.md` §9 ("Importing a legacy Word drawing"), this file's gotchas |
 | Any user-visible change | `docs/CHANGELOG.md` — new entry at the top, `## <date> · Newest — <title>`, plain-language why first |
 | End of session | `docs/SESSION_HANDOFF.md` update |
 

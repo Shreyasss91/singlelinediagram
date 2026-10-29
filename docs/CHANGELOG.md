@@ -6,7 +6,54 @@ generator up to its current state.
 
 ---
 
-## 2026-10-29 · Newest — `FIELD_CAPTURE.md`: where a node sits when the walk decides
+## 2026-10-29 · Newest — a legacy Word sheet becomes an editable `.drawio`
+
+The three sheets in `field_data/test/` existed only as 9923 × 7017 PNG renders and the Word file
+that produced them. A PNG is pixels: no tracer can turn it back into named DTC symbols, frames and
+kVA labels, and a paths-only conversion would be worse than useless to edit. The DOCX still holds
+the drawing as **812 vector shapes**, so that is what the new importer reads.
+
+### Added
+- **`docx_to_drawio.py`** — a companion tool, separate from the generator. One `.drawio` page per
+  Word page, every shape editable:
+  - `rect` and `roundRect` become rectangles (a filled one keeps its fill; the MUSS keeps its round
+    corners), `line` becomes a straight drawio edge with the direction recovered from `flipH`/
+    `flipV`, and a Word `frame` becomes **two concentric squares**, which is how these sheets draw a
+    DTC.
+  - Text boxes become drawio text, one line per Word paragraph, with size, weight, colour and
+    alignment carried over; a purely numeric label inside a symbol becomes centred text rather than
+    a second box, so the kVA rating sits in the symbol instead of beside it.
+  - Nested `wpg:wgp` and `wpg:grpSp` transforms are flattened, so grouped RMU panels keep their
+    geometry; theme `accent1` and its shades are resolved, because most shapes reference the theme
+    rather than a literal colour.
+  - Pages split where a drawing titled “Single line diagram” begins. Anchors Word placed outside the
+    page (one stray 2-shape group per page here, at x ≈ 18.8 in) are dropped and counted.
+  - Geometry stays at **1 in = 100 px** and is never enlarged: the drawing is centred on the same
+    A3 page the generator uses, or scaled down only if it would not fit.
+- **`outputs/2026-10-29/legacy/SLD_MRSF1_and_BHRoad_legacy.drawio`** — the three pages converted
+  (MRS F1, Proposed BH Road, Residual MRS F1): 482 / 209 / 283 cells, of which 121 / 53 / 72 are
+  edges. No duplicate cell ids, no dangling cells, 3 diagrams.
+
+### Documented
+- **`docs/README.md` §9** gains “Importing a legacy Word drawing”: the command, why the DOCX is the
+  source rather than the PNG, what is mapped, and what is approximate. The file table and the
+  repository tree name the new script.
+- **`CLAUDE.md`** — the command, the layout line, a gotcha (“the legacy sheet's source is the DOCX,
+  never the PNG; the output is a redraw, compare it with the render”), and a docs/commit row.
+
+### Not changed
+- No generator change: `sld_generator.py` does not import the converter, and the master, the
+  topology workbook and both templates are untouched. The conversion is one-way and offline.
+
+### Known limits
+- Word's `frame` inset, text-box insets and any autofit are approximated; the page is re-centred
+  rather than placed at Word's offset. Font sizes are scaled by a factor measured against the
+  render (1.6 px per point) because the nominal sizes in the file are smaller than the drawing
+  shows. Compare a converted page with its PNG before submitting it.
+
+---
+
+## 2026-10-29 — `FIELD_CAPTURE.md`: where a node sits when the walk decides
 
 The method chapter said the tree is captured without positioning, which raised the obvious question:
 then where do the boxes go? The answer differs by layout, and one part of it was wrong in a shipped
